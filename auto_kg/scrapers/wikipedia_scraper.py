@@ -3,7 +3,7 @@ Wikipedia scraper for mathematical concepts and topics.
 """
 
 import requests
-import wikipedia
+import wikipediaapi
 from bs4 import BeautifulSoup
 from typing import List, Dict, Set
 import re
@@ -24,7 +24,11 @@ class WikipediaMathScraper:
         """
         self.language = language
         self.max_pages = max_pages
-        wikipedia.set_lang(language)
+        self.wiki = wikipediaapi.Wikipedia(
+            language=language,
+            extract_format=wikipediaapi.ExtractFormat.WIKI,
+            user_agent='auto-kg/1.0 (https://github.com/vats98754/auto-kg)'
+        )
         
         # Core mathematical topics to start with
         self.seed_topics = [
@@ -61,50 +65,23 @@ class WikipediaMathScraper:
             Dictionary containing page content and metadata
         """
         try:
-            page = wikipedia.page(title)
+            page = self.wiki.page(title)
+            
+            if not page.exists():
+                print(f"Page not found: {title}")
+                return None
             
             # Get page content
             content = {
                 'title': page.title,
-                'url': page.url,
-                'summary': page.summary,
-                'content': page.content,
-                'links': page.links[:50],  # Limit links to avoid overwhelming
-                'categories': []
+                'url': page.fullurl,
+                'summary': page.summary[:1000] if page.summary else '',  # Limit summary length
+                'content': page.text[:5000] if page.text else '',  # Limit content length
+                'links': list(page.links.keys())[:50],  # Limit links to avoid overwhelming
+                'categories': list(page.categories.keys())[:10]  # Limit categories
             }
             
-            # Get categories from the page HTML
-            try:
-                response = requests.get(page.url)
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Extract categories
-                category_links = soup.find_all('a', href=re.compile(r'/wiki/Category:'))
-                content['categories'] = [link.get_text() for link in category_links[:10]]
-                
-            except Exception as e:
-                print(f"Warning: Could not extract categories for {title}: {e}")
-            
             return content
-            
-        except wikipedia.exceptions.DisambiguationError as e:
-            # Try the first option
-            try:
-                page = wikipedia.page(e.options[0])
-                return {
-                    'title': page.title,
-                    'url': page.url,
-                    'summary': page.summary,
-                    'content': page.content,
-                    'links': page.links[:50],
-                    'categories': []
-                }
-            except:
-                return None
-                
-        except wikipedia.exceptions.PageError:
-            print(f"Page not found: {title}")
-            return None
             
         except Exception as e:
             print(f"Error scraping {title}: {e}")

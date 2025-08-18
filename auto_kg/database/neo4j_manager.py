@@ -2,7 +2,13 @@
 Neo4j database integration for knowledge graph storage and retrieval.
 """
 
-from neo4j import GraphDatabase
+try:
+    from neo4j import GraphDatabase
+    NEO4J_AVAILABLE = True
+except ImportError:
+    NEO4J_AVAILABLE = False
+    GraphDatabase = None
+
 from typing import Dict, List, Any, Optional
 import os
 from dotenv import load_dotenv
@@ -22,6 +28,11 @@ class Neo4jKnowledgeGraph:
             user: Database username  
             password: Database password
         """
+        if not NEO4J_AVAILABLE:
+            print("Warning: Neo4j driver not available. Install with: pip install neo4j")
+            self.driver = None
+            return
+            
         self.uri = uri or os.getenv('NEO4J_URI', 'bolt://localhost:7687')
         self.user = user or os.getenv('NEO4J_USER', 'neo4j')
         self.password = password or os.getenv('NEO4J_PASSWORD', 'password')
@@ -40,6 +51,10 @@ class Neo4jKnowledgeGraph:
     
     def clear_database(self):
         """Clear all nodes and relationships from the database."""
+        if not self.driver:
+            print("No database connection available")
+            return
+            
         with self.driver.session() as session:
             session.run("MATCH (n) DETACH DELETE n")
             print("Database cleared.")
@@ -56,6 +71,10 @@ class Neo4jKnowledgeGraph:
             categories: List of categories
             properties: Additional properties
         """
+        if not self.driver:
+            print(f"No database connection available. Would create concept: {title}")
+            return
+            
         categories = categories or []
         properties = properties or {}
         
