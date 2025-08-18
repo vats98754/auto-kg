@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-KG: Mathematics Knowledge Graph</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Mathematics Knowledge Graph</h1>
+            <p>Interactive visualization of mathematical concepts and their relationships</p>
+        </header>
+        
+        <div class="controls">
+            <div class="search-container">
+                <input type="text" id="searchInput" placeholder="Search mathematical concepts...">
+                <button id="searchBtn">Search</button>
+            </div>
+            <div class="control-buttons">
+                <button id="resetBtn">Reset View</button>
+                <button id="shareBtn">Share Graph</button>
+                <button id="statsBtn">Show Stats</button>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="graph-container">
+                <svg id="knowledge-graph"></svg>
+                <div id="loading">Loading knowledge graph...</div>
+            </div>
+            
+            <div class="sidebar">
+                <div id="concept-details" class="panel">
+                    <h3>Concept Details</h3>
+                    <p>Click on a concept node to see details</p>
+                </div>
+                
+                <div id="graph-stats" class="panel">
+                    <h3>Graph Statistics</h3>
+                    <div id="stats-content">
+                        <p>Loading statistics...</p>
+                    </div>
+                </div>
+                
+                <div id="search-results" class="panel" style="display: none;">
+                    <h3>Search Results</h3>
+                    <div id="results-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+</body>
+</html>
