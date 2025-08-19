@@ -86,10 +86,18 @@ class KnowledgeGraph {
     
     updateVisualization() {
         if (!this.nodes || this.nodes.length === 0) return;
+        
+        // Check if Cytoscape is available
+        if (typeof cytoscape === 'undefined') {
+            console.warn('Cytoscape.js not available, using D3.js fallback');
+            this.updateVisualizationD3();
+            return;
+        }
+        
         const elements = [];
         const nodeSet = new Set();
         this.nodes.forEach(n => {
-            const size = Math.max(20, Math.min(40, ((n.categories || []).length + 1) * 6));
+            const size = Math.max(10, Math.min(25, ((n.categories || []).length + 1) * 4 + 8));
             const color = this.getNodeColor(n);
             elements.push({ data: { id: n.id, label: n.label, url: n.url, summary: n.summary, categories: n.categories, size, color }, classes: 'concept' });
             nodeSet.add(n.id);
@@ -111,11 +119,13 @@ class KnowledgeGraph {
                     'background-color': 'data(color)',
                     'label': 'data(label)',
                     'color': '#e5e7ef',
-                    'font-size': '12px',
+                    'font-size': '10px',
                     'text-outline-color': '#0b0e1a',
-                    'text-outline-width': 3,
+                    'text-outline-width': 2,
                     'width': 'data(size)',
-                    'height': 'data(size)'
+                    'height': 'data(size)',
+                    'text-valign': 'center',
+                    'text-halign': 'center'
                 }},
                 { selector: 'edge', style: {
                     'width': 1.5,
@@ -129,13 +139,161 @@ class KnowledgeGraph {
                     'target-arrow-color': '#4fd1c5'
                 }}
             ],
-            layout: { name: 'cose', padding: 30, nodeRepulsion: 8000, idealEdgeLength: 120, edgeElasticity: 0.1, gravity: 1.5, numIter: 500, initialTemp: 200 }
+            layout: { 
+                name: 'cose', 
+                padding: 50, 
+                nodeRepulsion: 12000, 
+                idealEdgeLength: 100, 
+                edgeElasticity: 0.15, 
+                gravity: 1.2, 
+                numIter: 600, 
+                initialTemp: 150,
+                coolingFactor: 0.95,
+                minTemp: 1.0
+            }
         });
 
         this.cy.on('tap', 'node', evt => {
             const d = evt.target.data();
             this.showConceptDetails(d);
         });
+    }
+
+    updateVisualizationD3() {
+        // D3.js fallback visualization
+        const container = d3.select("#knowledge-graph");
+        container.selectAll("*").remove();
+        
+        const width = this.width;
+        const height = this.height;
+        
+        const svg = container.append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .style("background", "transparent");
+        
+        const g = svg.append("g");
+        
+        // Add zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 3])
+            .on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+        svg.call(zoom);
+        
+        // Create force simulation
+        const simulation = d3.forceSimulation(this.nodes)
+            .force("link", d3.forceLink(this.links).id(d => d.id).distance(80))
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(20));
+        
+        // Create links
+        const link = g.append("g")
+            .attr("class", "links")
+            .selectAll("line")
+            .data(this.links)
+            .enter().append("line")
+            .attr("stroke", "#39406a")
+            .attr("stroke-opacity", 0.7)
+            .attr("stroke-width", 1.2);
+        
+        // Create nodes
+        const node = g.append("g")
+            .attr("class", "nodes")
+            .selectAll("circle")
+            .data(this.nodes)
+            .enter().append("circle")
+            .attr("r", d => Math.max(10, Math.min(25, ((d.categories || []).length + 1) * 4 + 8)))
+            .attr("fill", d => this.getNodeColor(d))
+            .attr("stroke", "#0b0e1a")
+            .attr("stroke-width", 2)
+            .style("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.35))")
+            .style("cursor", "pointer")
+            .call(d3.drag()
+                .on("start", (event, d) => this.dragstarted(event, d))
+                .on("drag", (event, d) => this.dragged(event, d))
+                .on("end", (event, d) => this.dragended(event, d)));
+        
+        // Add labels
+        const label = g.append("g")
+            .attr("class", "labels")
+            .selectAll("text")
+            .data(this.nodes)
+            .enter().append("text")
+            .text(d => d.label.length > 12 ? d.label.substring(0, 12) + "..." : d.label)
+            .attr("font-size", "10px")
+            .attr("fill", "#e5e7ef")
+            .attr("text-anchor", "middle")
+            .attr("dy", "0.35em")
+            .style("text-shadow", "0 0 3px #0b0e1a, 0 0 3px #0b0e1a")
+            .style("pointer-events", "none");
+        
+        // Add click events
+        node.on("click", (event, d) => this.showConceptDetails(d));
+        
+        // Add hover effects
+        node.on("mouseover", (event, d) => this.highlightNodeD3(d))
+            .on("mouseout", () => this.clearHighlightD3());
+        
+        // Update positions on simulation tick
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+            
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+            
+            label
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
+        });
+        
+        // Store references for later use
+        this.d3Svg = svg;
+        this.d3Simulation = simulation;
+        this.d3Nodes = node;
+        this.d3Links = link;
+        this.d3Labels = label;
+        
+        document.getElementById('loading').style.display = 'none';
+    }
+    
+    highlightNodeD3(node) {
+        if (!this.d3Nodes) return;
+        this.d3Nodes.style("opacity", d => d.id === node.id ? 1 : 0.3);
+        this.d3Links.style("opacity", d => d.source.id === node.id || d.target.id === node.id ? 1 : 0.1);
+        this.d3Labels.style("opacity", d => d.id === node.id ? 1 : 0.3);
+    }
+    
+    clearHighlightD3() {
+        if (!this.d3Nodes) return;
+        this.d3Nodes.style("opacity", 1);
+        this.d3Links.style("opacity", 0.7);
+        this.d3Labels.style("opacity", 1);
+    }
+    
+    // Drag functions for D3
+    dragstarted(event, d) {
+        if (!event.active && this.d3Simulation) this.d3Simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    
+    dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    
+    dragended(event, d) {
+        if (!event.active && this.d3Simulation) this.d3Simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
     }
 
     mergeGraphData(data, replace = true) {
@@ -252,25 +410,43 @@ class KnowledgeGraph {
         if (!this.nodes.find(n => n.id === nodeId)) {
             try { await this.loadSubgraph(nodeId, 2); } catch(e) { /* ignore */ }
         }
-        if (!this.cy) return;
-    const ele = this.cy.getElementById(nodeId);
-    if (ele && ele.length > 0) {
-            this.cy.animate({ center: { eles: ele }, zoom: 1.2 }, { duration: 450 });
-            this.showConceptDetails(ele.data());
-            this.highlightNode(nodeId);
+        
+        if (this.cy) {
+            const ele = this.cy.getElementById(nodeId);
+            if (ele && ele.length > 0) {
+                this.cy.animate({ center: { eles: ele }, zoom: 1.2 }, { duration: 450 });
+                this.showConceptDetails(ele.data());
+                this.highlightNode(nodeId);
+            }
+        } else if (this.d3Simulation) {
+            // D3 focus implementation
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) {
+                this.showConceptDetails(node);
+                this.highlightNodeD3(node);
+            }
         }
     }
     
     highlightNode(nodeId) {
-        if (!this.cy) return;
-        this.cy.elements().removeClass('highlighted');
-        const n = this.cy.getElementById(nodeId);
-    n.addClass('highlighted');
-    n.connectedEdges().addClass('highlighted');
+        if (this.cy) {
+            this.cy.elements().removeClass('highlighted');
+            const n = this.cy.getElementById(nodeId);
+            n.addClass('highlighted');
+            n.connectedEdges().addClass('highlighted');
+        } else {
+            // D3 highlighting handled in highlightNodeD3
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) this.highlightNodeD3(node);
+        }
     }
+    
     clearHighlight() {
-        if (!this.cy) return;
-        this.cy.elements().removeClass('highlighted');
+        if (this.cy) {
+            this.cy.elements().removeClass('highlighted');
+        } else {
+            this.clearHighlightD3();
+        }
     }
     
     async search(query) {
@@ -311,8 +487,14 @@ class KnowledgeGraph {
     // Drag is built-in for Cytoscape
     
     resetView() {
-        if (!this.cy) return;
-        this.cy.fit(undefined, 40);
+        if (this.cy) {
+            this.cy.fit(undefined, 40);
+        } else if (this.d3Svg) {
+            // Reset D3 zoom
+            this.d3Svg.transition()
+                .duration(750)
+                .call(d3.zoom().transform, d3.zoomIdentity);
+        }
     }
 }
 
@@ -390,6 +572,104 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Handle window resize
     window.addEventListener('resize', function() {
-        if (graph && graph.cy) graph.cy.resize();
+        if (graph && graph.cy) {
+            graph.cy.resize();
+        } else if (graph && graph.d3Svg) {
+            // Update D3 dimensions
+            const newWidth = Math.max(600, window.innerWidth * 0.7);
+            const newHeight = Math.max(400, window.innerHeight - 180);
+            graph.d3Svg.attr("width", newWidth).attr("height", newHeight);
+            if (graph.d3Simulation) {
+                graph.d3Simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+                graph.d3Simulation.alpha(0.3).restart();
+            }
+        }
+    });
+
+    // File upload functionality
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    let selectedFile = null;
+
+    // Click to upload
+    uploadArea.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // Drag and drop functionality
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.style.background = '#171c36';
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.style.background = '#12162b';
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.style.background = '#12162b';
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            selectedFile = files[0];
+            updateUploadUI();
+        }
+    });
+
+    // File selection
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            updateUploadUI();
+        }
+    });
+
+    function updateUploadUI() {
+        if (selectedFile) {
+            uploadArea.querySelector('.upload-text').innerHTML = `
+                <span>Selected: ${selectedFile.name}</span>
+                <br>
+                <small>Size: ${(selectedFile.size / 1024).toFixed(1)} KB</small>
+            `;
+            uploadBtn.disabled = false;
+        }
+    }
+
+    // Upload button click
+    uploadBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        uploadBtn.disabled = true;
+        uploadStatus.innerHTML = '<span style="color: var(--primary);">Processing document...</span>';
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            uploadStatus.innerHTML = `<span style="color: var(--accent);">✓ Processed! Found ${result.concept_count} concepts and ${result.relationship_count} relationships</span>`;
+            
+            // Load the newly generated graph
+            graph.mergeGraphData(result, true);
+            graph.updateVisualization();
+
+        } catch (error) {
+            uploadStatus.innerHTML = `<span style="color: #ff6b6b;">Error: ${error.message}</span>`;
+        } finally {
+            uploadBtn.disabled = false;
+        }
     });
 });

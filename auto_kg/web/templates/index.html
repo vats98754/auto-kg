@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto-KG: Mathematics Knowledge Graph</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        // Simple fallback check for cytoscape
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof cytoscape === 'undefined') {
+                console.log('Cytoscape.js not available, will use canvas fallback');
+            }
+        });
+    </script>
     <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
 </head>
 <body>
@@ -72,6 +81,23 @@
                         <input type="text" id="pathTarget" placeholder="Target concept" style="margin-top:0.5rem;">
                         <button id="runPath" style="margin-top:0.5rem;">Find Path</button>
                         <div id="pathSummary" style="margin-top:0.5rem;"></div>
+                    </div>
+                </div>
+
+                <div id="upload-panel" class="panel">
+                    <h3>Upload Document</h3>
+                    <div class="upload-section">
+                        <div class="stat-item"><span class="stat-label">Upload your own document to generate a custom knowledge graph</span></div>
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx" style="display: none;">
+                            <div class="upload-text">
+                                <span>Click to upload or drag & drop</span>
+                                <br>
+                                <small>Supports: TXT, PDF, DOC, DOCX</small>
+                            </div>
+                        </div>
+                        <button id="uploadBtn" style="margin-top:0.5rem;" disabled>Process Document</button>
+                        <div id="uploadStatus" style="margin-top:0.5rem;"></div>
                     </div>
                 </div>
             </div>

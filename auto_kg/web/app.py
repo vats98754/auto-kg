@@ -7,9 +7,12 @@ from flask import Flask, render_template, jsonify, request, url_for
 from flask_cors import CORS
 import json
 import os
+import tempfile
 from collections import deque, defaultdict
 from typing import Dict, List, Set
+from werkzeug.utils import secure_filename
 from auto_kg.database.neo4j_manager import Neo4jKnowledgeGraph
+from auto_kg.utils.document_processor import DocumentProcessor, create_knowledge_graph_from_document
 
 
 def create_app():
@@ -343,6 +346,80 @@ def create_app():
     def health():
         ok = bool(getattr(kg, 'driver', None))
         return jsonify({'neo4j': ok})
+
+    @app.route('/api/upload', methods=['POST'])
+    def upload_document():
+        """API endpoint to handle document uploads and generate knowledge graphs."""
+        try:
+            # Check if file was uploaded
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Initialize document processor
+            processor = DocumentProcessor()
+            
+            # Check if file type is supported
+            if not processor.is_supported(file.filename):
+                return jsonify({'error': f'Unsupported file type. Supported: TXT, PDF, DOC, DOCX'}), 400
+            
+            # Save uploaded file temporarily
+            filename = secure_filename(file.filename)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
+                file.save(temp_file.name)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Process the document
+                document_data = processor.process_file(temp_file_path, filename)
+                
+                # Generate knowledge graph
+                graph_data = create_knowledge_graph_from_document(document_data)
+                
+                # Try to save to Neo4j if available
+                try:
+                    if hasattr(kg, 'driver') and kg.driver:
+                        # Convert to Neo4j format and save
+                        processed_data = {
+                            document_data['title']: {
+                                'title': document_data['title'],
+                                'concepts': [node['label'] for node in graph_data['nodes']],
+                                'relationships': [(edge['source'], edge['target'], edge['relationship_type']) 
+                                                for edge in graph_data['edges']],
+                                'original_data': {
+                                    'title': document_data['title'],
+                                    'summary': document_data['content'][:500] + "..." if len(document_data['content']) > 500 else document_data['content'],
+                                    'url': f"uploaded://{filename}",
+                                    'categories': ['User Upload'],
+                                    'links': []
+                                }
+                            }
+                        }
+                        kg.load_processed_data(processed_data)
+                except Exception as e:
+                    print(f"Failed to save to Neo4j: {e}")
+                
+                # Return the graph data for immediate display
+                return jsonify({
+                    'nodes': graph_data['nodes'],
+                    'edges': graph_data['edges'],
+                    'concept_count': graph_data['metadata']['concept_count'],
+                    'relationship_count': graph_data['metadata']['relationship_count'],
+                    'message': f'Successfully processed {filename}'
+                })
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    pass
+            
+        except Exception as e:
+            return jsonify({'error': f'Error processing document: {str(e)}'}), 500
     
     @app.route('/share/<graph_id>')
     def share_graph(graph_id):

@@ -233,6 +233,68 @@ button:hover {
     border-bottom: none;
 }
 
+/* Upload Interface */
+.upload-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.upload-area {
+    border: 2px dashed #2b3052;
+    border-radius: 8px;
+    padding: 2rem 1rem;
+    text-align: center;
+    background: #12162b;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.upload-area:hover {
+    background: #171c36;
+    border-color: #39406a;
+}
+
+.upload-text {
+    color: var(--muted);
+}
+
+.upload-text span {
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.upload-text small {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+#uploadStatus {
+    min-height: 1.2rem;
+    font-size: 0.9rem;
+}
+
+/* Analysis section improvements */
+.analysis-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.analysis-section input {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid #2b3052;
+    background: #0e1326;
+    color: var(--text);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.analysis-section input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .controls {
