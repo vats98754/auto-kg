@@ -1,187 +1,116 @@
-# Auto-KG: Automatic Knowledge Graph Builder
+# 🌐 Auto-KG Render Deployment Branch
 
-This app automatically builds (via free locally-hosted LLM calls) and displays (via Neo4j) an interactive knowledge graph of all (inferred) relevant concepts from a set of documents. It's designed as a cool and efficient visualization and presentation tool for course notes, research, and educational purposes.
+**Ready-to-deploy branch for hosting Auto-KG on Render (100% free)**
 
-The initial implementation focuses on creating a comprehensive knowledge graph of mathematics by scraping data and relationships between mathematical topics from Wikipedia. Users can share links to their created knowledge graphs with others.
+> ⚠️ **Important**: This is the deployment branch. For development and main project documentation, see the [main branch](https://github.com/vats98754/auto-kg/tree/main).
 
-## Features
+## 🚀 One-Click Deployment
 
-- **Wikipedia Scraping**: Automatically scrapes mathematical concepts from Wikipedia
-- **LLM-Powered Concept Extraction**: Uses rule-based methods or OpenAI API to extract relationships
-- **Neo4j Knowledge Graph**: Stores and queries the knowledge graph in Neo4j database
-- **Interactive Web Visualization**: D3.js-powered interactive graph visualization
-- **Sharing Capabilities**: Generate shareable links for knowledge graphs
-- **Search Functionality**: Search and explore mathematical concepts
-- **Real-time Statistics**: View graph statistics and most connected concepts
+This branch is optimized for Render deployment. Everything is pre-configured for you!
 
-## Quick Start
+### Quick Deploy Steps:
 
-### Prerequisites
+1. **Fork this repository** to your GitHub account
+2. **Switch to this branch** (`render-deploy`)
+3. **Deploy to Render**:
+   - Create account at [render.com](https://render.com)
+   - Connect GitHub account
+   - Create "New Blueprint"
+   - Point to your forked repo, branch: `render-deploy`
+   - Configure environment variables (see guide below)
 
-- Python 3.8+
-- Neo4j Database (or Docker)
-- Optional: OpenAI API key for enhanced LLM processing
+4. **Or follow the detailed manual steps** in our [Complete Deployment Guide](./RENDER_DEPLOYMENT_GUIDE.md)
 
-### Installation
+## 📋 What's Included
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd auto-kg
-   ```
+- ✅ **Pre-configured services**: Web app + Neo4j database  
+- ✅ **Free tier optimized**: Runs entirely on Render's free plan
+- ✅ **Sample data included**: Mathematical concepts knowledge graph
+- ✅ **Auto-scaling**: Handles traffic spikes automatically
+- ✅ **HTTPS enabled**: Secure by default
+- ✅ **Persistent storage**: Database data survives restarts
 
-2. **Run the setup script:**
-   ```bash
-   ./setup.sh
-   ```
+## 🎯 Features
 
-3. **Configure your environment:**
-   - Edit `.env` file with your Neo4j credentials
-   - Optionally add OpenAI API key for enhanced processing
+- **Interactive Knowledge Graph Visualization**: Explore mathematical concepts and their relationships
+- **Document Upload**: Create custom knowledge graphs from your documents  
+- **Wikipedia Integration**: Scrape and process Wikipedia articles
+- **Multi-format Support**: TXT, PDF, DOC, DOCX files
+- **Responsive Design**: Works on desktop and mobile
+- **API Access**: Programmatic access to graph data
 
-4. **Start Neo4j database:**
-   ```bash
-   # Using Docker (recommended)
-   docker run -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:latest
-   
-   # Or start your local Neo4j installation
-   neo4j start
-   ```
+## 📖 Documentation
 
-5. **Run the full pipeline:**
-   ```bash
-   python main.py full --max-pages 20 --serve
-   ```
+| Document | Description |
+|----------|-------------|
+| [📖 RENDER_DEPLOYMENT_GUIDE.md](./RENDER_DEPLOYMENT_GUIDE.md) | **Complete deployment guide** (start here) |
+| [✅ DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) | **Step-by-step checklist** |
+| [🔧 ENV_TEMPLATE.md](./ENV_TEMPLATE.md) | **Environment variables template** |
+| [🚀 README_DEPLOY.md](./README_DEPLOY.md) | Technical deployment details |
 
-6. **Open your browser** to `http://localhost:5000` to view the knowledge graph!
+## 💰 Cost Breakdown
 
-## Usage
+**Total Monthly Cost: $0** (Free Tier)
 
-### Command Line Interface
+| Service | Type | Cost | Limits |
+|---------|------|------|--------|
+| Web App | Free Tier | $0 | 750 hours/month |
+| Neo4j Database | Free Tier | $0 | 1GB storage |
+| Domain | Provided | $0 | .onrender.com subdomain |
+| HTTPS | Included | $0 | Automatic SSL |
 
-The application provides a comprehensive CLI for different operations:
+## 🆘 Need Help?
 
-```bash
-# Scrape Wikipedia for mathematical concepts
-python main.py scrape --max-pages 200 --max-depth 3 --language en --seed-topics "Mathematics" "Linear algebra" "Topology"
+1. **Start here**: [RENDER_DEPLOYMENT_GUIDE.md](./RENDER_DEPLOYMENT_GUIDE.md)
+2. **Check troubleshooting**: See guide for common issues
+3. **Report issues**: [GitHub Issues](https://github.com/vats98754/auto-kg/issues)
 
-# Process scraped data with LLM
-python main.py process --input wikipedia_math_data.json --model-type rule_based
+## 🔧 Development
 
-# Load data into Neo4j
-python main.py load --input wikipedia_math_data.json --clear
+This is the deployment branch. For development, see the main branch:
+- Main project: [main branch](https://github.com/vats98754/auto-kg/tree/main)
+- Development setup: [Main README](https://github.com/vats98754/auto-kg/blob/main/README.md)
 
-# Load processed concepts (typed relationships) into Neo4j
-python main.py load-processed --input processed_concepts.json --clear
-
-# Start the web application
-python main.py web --port 5000
-
-# Run the complete pipeline
-python main.py full --max-pages 30 --serve --clear-db
-```
-
-### Subgraph and Path Analysis (Web UI)
-
-- Use the Analyze panel to load a subgraph rooted at a concept up to a given depth
-- Find a shortest path between two concepts; the graph view updates to that path
-
-### Web Interface
-
-The web interface provides:
-
-- **Interactive Graph Visualization**: Zoom, pan, and drag nodes
-- **Concept Details**: Click on nodes to view detailed information
-- **Search**: Find specific mathematical concepts
-- **Graph Statistics**: View connection counts and graph metrics
-- **Sharing**: Generate shareable URLs for specific graph views
-
-## Configuration
-
-Edit the `.env` file to configure:
-
-```env
-# Neo4j Configuration
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-
-# LLM Configuration (Optional)
-OPENAI_API_KEY=your_openai_api_key_here
-LLM_MODEL=gpt-3.5-turbo
-
-# Application Configuration
-FLASK_PORT=5000
-FLASK_DEBUG=True
-MAX_WIKIPEDIA_PAGES=100
-```
-
-## Architecture
+## 📊 Architecture
 
 ```
-auto_kg/
-├── scrapers/           # Wikipedia scraping functionality
-├── llm/               # LLM integration for concept extraction
-├── database/          # Neo4j database management
-├── web/               # Flask web application
-│   ├── templates/     # HTML templates
-│   └── static/        # CSS/JS assets
-└── utils/             # Utility functions
+┌─────────────────┐    ┌─────────────────┐
+│   Render Web    │    │   Render Neo4j  │
+│   (Flask App)   │◄──►│   (Database)    │
+│                 │    │                 │
+│ • UI/API        │    │ • Graph Storage │
+│ • File Upload   │    │ • Persistence   │  
+│ • Processing    │    │ • Bolt Protocol │
+└─────────────────┘    └─────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│     Users       │
+│                 │
+│ • Web Interface │
+│ • API Access    │
+│ • File Upload   │
+└─────────────────┘
 ```
 
-## Features in Detail
+## 🎉 Success Stories
 
-### Wikipedia Scraping
-- Starts with seed mathematical topics
-- Intelligently follows links to related mathematical concepts
-- Extracts page content, categories, and relationships
-- Rate-limited to be respectful to Wikipedia
+After deployment, you'll have:
+- ✅ Live web application with custom domain
+- ✅ Automatic HTTPS security
+- ✅ Scalable knowledge graph database
+- ✅ File upload and processing capabilities
+- ✅ API endpoints for integration
+- ✅ Interactive graph visualization
 
-### Concept Extraction
-- **Rule-based**: Uses regex patterns to identify mathematical concepts and relationships
-- **LLM-powered**: Optional OpenAI integration for enhanced concept extraction
-- Identifies theorems, mathematical structures, and relationships
+---
 
-### Knowledge Graph Storage
-- Neo4j database for efficient graph storage and querying
-- Concept nodes with properties (title, summary, categories, URL)
-- Relationship edges with types (relates_to, generalizes, etc.)
-- Graph statistics and analytics
+**Ready to deploy? Start with [RENDER_DEPLOYMENT_GUIDE.md](./RENDER_DEPLOYMENT_GUIDE.md)**
 
-### Web Visualization
-- D3.js force-directed graph layout
-- Interactive nodes with hover and click behaviors
-- Color-coded nodes by mathematical category
-- Responsive design for different screen sizes
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
+## 📄 License
 
 This project is open source. See LICENSE file for details.
 
-## Roadmap
+---
 
-- [ ] Support for additional data sources beyond Wikipedia
-- [ ] Enhanced LLM integration with local models
-- [ ] Graph analytics and insights
-- [ ] Export functionality (PDF, images)
-- [ ] Collaborative editing and sharing
-- [ ] Plugin system for custom data processors
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Neo4j Connection Error**: Ensure Neo4j is running and credentials are correct in `.env`
-2. **Wikipedia Rate Limiting**: Reduce `--max-pages` if encountering rate limits
-3. **Memory Issues**: For large graphs, consider increasing available memory
-4. **OpenAI API Errors**: Check API key and rate limits if using OpenAI integration
-
-For more help, see the [documentation](docs/) or open an issue.
+**Happy Knowledge Graphing! 🧠📊**

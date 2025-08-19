@@ -3,26 +3,193 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Auto-KG (Static)</title>
+  <title>Auto-KG - Automatic Knowledge Graph Builder</title>
+  <meta name="description" content="Interactive knowledge graph visualization powered by Auto-KG. Explore mathematical concepts and their relationships.">
   <link rel="stylesheet" href="static/css/style.css" />
   <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+      color: #e5e7ef;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .header {
+      margin-bottom: 2rem;
+    }
+    .header h1 {
+      color: #7aa2f7;
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .header p {
+      font-size: 1.2rem;
+      color: #a0aec0;
+    }
+    .config-section {
+      background: rgba(255,255,255,0.1);
+      padding: 2rem;
+      border-radius: 12px;
+      margin: 2rem 0;
+      text-align: left;
+    }
+    .config-input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #39406a;
+      border-radius: 8px;
+      background: #2d2d44;
+      color: #e5e7ef;
+      font-size: 1rem;
+      margin: 0.5rem 0;
+    }
+    .btn {
+      background: #7aa2f7;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+      margin: 0.5rem;
+      transition: background 0.2s;
+    }
+    .btn:hover {
+      background: #6c95d4;
+    }
+    .btn-secondary {
+      background: #39406a;
+    }
+    .btn-secondary:hover {
+      background: #4a5082;
+    }
+    .status {
+      margin: 1rem 0;
+      padding: 1rem;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .status.success {
+      background: rgba(164, 223, 164, 0.1);
+      color: #a4dfa4;
+      border: 1px solid #a4dfa4;
+    }
+    .status.error {
+      background: rgba(255, 139, 139, 0.1);
+      color: #ff8b8b;
+      border: 1px solid #ff8b8b;
+    }
+    .status.info {
+      background: rgba(122, 162, 247, 0.1);
+      color: #7aa2f7;
+      border: 1px solid #7aa2f7;
+    }
+  </style>
 </head>
 <body>
+  <div class="container">
+    <div class="header">
+      <h1>🧠 Auto-KG</h1>
+      <p>Automatic Knowledge Graph Builder</p>
+    </div>
+
+    <div class="config-section">
+      <h3>🔧 Configure Backend URL</h3>
+      <p>Enter your Render service URL to connect to your deployed Auto-KG backend:</p>
+      <input 
+        type="url" 
+        id="apiUrlInput" 
+        class="config-input" 
+        placeholder="https://your-auto-kg-service.onrender.com"
+        value=""
+      >
+      <br>
+      <button onclick="testConnection()" class="btn">Test Connection</button>
+      <button onclick="saveAndRedirect()" class="btn">Connect to App</button>
+      <button onclick="deployToRender()" class="btn btn-secondary">Deploy Your Own</button>
+      
+      <div id="status"></div>
+    </div>
+
+    <div class="config-section">
+      <h3>📚 Quick Links</h3>
+      <ul style="text-align: left; font-size: 1.1rem;">
+        <li><a href="https://github.com/vats98754/auto-kg/blob/render-deploy/RENDER_DEPLOYMENT_GUIDE.md" style="color: #7aa2f7;">📖 Deployment Guide</a></li>
+        <li><a href="https://github.com/vats98754/auto-kg/tree/render-deploy" style="color: #7aa2f7;">🚀 Deployment Branch</a></li>
+        <li><a href="https://render.com" style="color: #7aa2f7;">🌐 Render Platform</a></li>
+      </ul>
+    </div>
+  </div>
+
   <script>
-    // Set to your Render backend URL
-    window.API_BASE = 'REPLACE_WITH_RENDER_URL';
-  </script>
-  <div id="app"></div>
-  <script>
-    // Lightweight loader for the same app
-    fetch(`${window.API_BASE}/`)
-      .then(() => {
-        // redirect to backend-served UI if preferred
-        window.location.href = `${window.API_BASE}`;
-      })
-      .catch(() => {
-        document.getElementById('app').innerHTML = '<p>Backend unavailable. Please configure window.API_BASE in docs/index.html</p>';
-      });
+    // Load saved URL from localStorage
+    const savedUrl = localStorage.getItem('autokg_api_url');
+    if (savedUrl) {
+      document.getElementById('apiUrlInput').value = savedUrl;
+    }
+
+    function showStatus(message, type = 'info') {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerHTML = message;
+      statusDiv.className = `status ${type}`;
+    }
+
+    async function testConnection() {
+      const url = document.getElementById('apiUrlInput').value.trim();
+      
+      if (!url) {
+        showStatus('Please enter a backend URL', 'error');
+        return;
+      }
+
+      showStatus('Testing connection...', 'info');
+
+      try {
+        const response = await fetch(`${url}/api/health`);
+        if (response.ok) {
+          const data = await response.json();
+          showStatus(`✅ Connection successful! Status: ${data.status || 'healthy'}`, 'success');
+        } else {
+          showStatus(`❌ Connection failed (${response.status})`, 'error');
+        }
+      } catch (error) {
+        showStatus(`❌ Connection failed: ${error.message}`, 'error');
+      }
+    }
+
+    function saveAndRedirect() {
+      const url = document.getElementById('apiUrlInput').value.trim();
+      
+      if (!url) {
+        showStatus('Please enter a backend URL', 'error');
+        return;
+      }
+
+      // Save URL to localStorage
+      localStorage.setItem('autokg_api_url', url);
+      
+      // Redirect to the backend UI
+      window.location.href = url;
+    }
+
+    function deployToRender() {
+      window.open('https://render.com/deploy?repo=https://github.com/vats98754/auto-kg/tree/render-deploy', '_blank');
+    }
+
+    // Auto-test if URL is already configured
+    window.addEventListener('load', function() {
+      const url = document.getElementById('apiUrlInput').value;
+      if (url) {
+        testConnection();
+      }
+    });
   </script>
 </body>
 </html>

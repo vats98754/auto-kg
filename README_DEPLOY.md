@@ -1,6 +1,14 @@
 # Deploy Auto-KG (Web + Neo4j)
 
+**🚀 For detailed deployment instructions, see [RENDER_DEPLOYMENT_GUIDE.md](./RENDER_DEPLOYMENT_GUIDE.md)**
+
 This project can run fully in Render (API + Neo4j) and be visualized from a static site (e.g., GitHub Pages) pointing to the API.
+
+## Quick Start
+
+1. **Use the `render-deploy` branch** for production deployment
+2. **Follow the complete guide**: [RENDER_DEPLOYMENT_GUIDE.md](./RENDER_DEPLOYMENT_GUIDE.md)
+3. **Deploy with one-click** using Render Blueprint
 
 ## 1) Deploy to Render
 
@@ -9,19 +17,20 @@ This project can run fully in Render (API + Neo4j) and be visualized from a stat
   - `auto-kg-web` (Python/Flask via Gunicorn)
   - `auto-kg-neo4j` (Neo4j 5 Docker)
 
-Steps:
-1. Push to GitHub.
-2. In Render, create "New +" → "Blueprint". Point to this repo. It will read `render.yaml`.
+### Quick Steps:
+1. Fork this repository and switch to `render-deploy` branch
+2. In Render, create "New +" → "Blueprint". Point to your fork.
 3. Set environment variables on `auto-kg-web`:
-   - `NEO4J_PASSWORD` (required)
+   - `NEO4J_PASSWORD` (choose a secure password)
    - `NEO4J_URI=bolt://auto-kg-neo4j:7687` (already in blueprint)
    - `NEO4J_USER=neo4j`
 4. On the Neo4j service, ensure `NEO4J_AUTH=neo4j/<same password>`.
 5. Render will provision a disk for `/data` to persist DB.
 
-If you want to pre-load processed data:
-- Commit `processed_concepts.json` (already present).
-- After deploy, hit the API endpoint you expose for loading (or run a one-off job). For now the web app can operate with the fallback offline graph too.
+### Pre-loaded Data:
+- The app includes `processed_concepts.json` with sample mathematical concepts
+- After deployment, the app can operate with fallback offline graph data
+- Use the web interface to upload custom documents or scrape new Wikipedia data
 
 ## 2) Host frontend on GitHub Pages
 
