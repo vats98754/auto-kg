@@ -1,33 +1,14 @@
-// Knowledge Graph Visualization with D3.js
+// Knowledge Graph Visualization with Cytoscape.js
 
 class KnowledgeGraph {
     constructor() {
-        this.svg = d3.select("#knowledge-graph");
-        this.width = window.innerWidth * 0.7;
-        this.height = window.innerHeight - 200;
-        
-        this.svg.attr("width", this.width).attr("height", this.height);
-        
-        this.g = this.svg.append("g");
-        
-        // Add zoom behavior
-        this.zoom = d3.zoom()
-            .scaleExtent([0.1, 3])
-            .on("zoom", (event) => {
-                this.g.attr("transform", event.transform);
-            });
-            
-        this.svg.call(this.zoom);
-        
-        // Force simulation
-        this.simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(80))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("center", d3.forceCenter(this.width / 2, this.height / 2))
-            .force("collision", d3.forceCollide().radius(30));
-        
+    this.container = document.getElementById('knowledge-graph');
+    this.width = Math.max(600, window.innerWidth * 0.7);
+    this.height = Math.max(400, window.innerHeight - 180);
+
         this.nodes = [];
         this.links = [];
+    this.cy = null;
         
         this.init();
     }
@@ -36,12 +17,12 @@ class KnowledgeGraph {
         // Load initial data
         this.loadGraphData();
         this.loadStats();
-        this.setupEventListeners();
     }
     
     async loadGraphData() {
         try {
-            const response = await fetch('/api/graph');
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/graph`);
             const data = await response.json();
             
             if (data.error) {
@@ -63,7 +44,8 @@ class KnowledgeGraph {
     
     async loadStats() {
         try {
-            const response = await fetch('/api/stats');
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/stats`);
             const stats = await response.json();
             
             this.displayStats(stats);
@@ -103,87 +85,394 @@ class KnowledgeGraph {
     }
     
     updateVisualization() {
-        // Clear existing elements
-        this.g.selectAll("*").remove();
+        if (!this.nodes || this.nodes.length === 0) return;
         
-        if (this.nodes.length === 0) {
+        // Check if Cytoscape is available
+        if (typeof cytoscape !== 'undefined') {
+            this.updateVisualizationCytoscape();
+        } else if (typeof d3 !== 'undefined') {
+            console.warn('Cytoscape.js not available, using D3.js fallback');
+            this.updateVisualizationD3();
+        } else {
+            console.warn('Neither Cytoscape.js nor D3.js available, using basic HTML fallback');
+            this.updateVisualizationHTML();
+        }
+    }
+
+    updateVisualizationCytoscape() {
+        const elements = [];
+        const nodeSet = new Set();
+        this.nodes.forEach(n => {
+            const size = Math.max(10, Math.min(25, ((n.categories || []).length + 1) * 4 + 8));
+            const color = this.getNodeColor(n);
+            elements.push({ data: { id: n.id, label: n.label, url: n.url, summary: n.summary, categories: n.categories, size, color }, classes: 'concept' });
+            nodeSet.add(n.id);
+        });
+        this.links.forEach(e => {
+            const sid = e.source?.id || e.source;
+            const tid = e.target?.id || e.target;
+            if (sid && tid && nodeSet.has(sid) && nodeSet.has(tid)) {
+                const type = e.relationship_type || 'RELATES_TO';
+                elements.push({ data: { id: `${sid}->${tid}-${type}`, source: sid, target: tid, type }, classes: 'rel' });
+            }
+        });
+        if (this.cy) { this.cy.destroy(); }
+        this.cy = cytoscape({
+            container: this.container,
+            elements,
+            style: [
+                { selector: 'node', style: {
+                    'background-color': 'data(color)',
+                    'label': 'data(label)',
+                    'color': '#e5e7ef',
+                    'font-size': '10px',
+                    'text-outline-color': '#0b0e1a',
+                    'text-outline-width': 2,
+                    'width': 'data(size)',
+                    'height': 'data(size)',
+                    'text-valign': 'center',
+                    'text-halign': 'center'
+                }},
+                { selector: 'edge', style: {
+                    'width': 1.5,
+                    'line-color': '#39406a',
+                    'target-arrow-color': '#39406a',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier'
+                }},
+                { selector: '.highlighted', style: {
+                    'line-color': '#4fd1c5',
+                    'target-arrow-color': '#4fd1c5'
+                }}
+            ],
+            layout: { 
+                name: 'cose', 
+                padding: 50, 
+                nodeRepulsion: 12000, 
+                idealEdgeLength: 100, 
+                edgeElasticity: 0.15, 
+                gravity: 1.2, 
+                numIter: 600, 
+                initialTemp: 150,
+                coolingFactor: 0.95,
+                minTemp: 1.0
+            }
+        });
+
+        this.cy.on('tap', 'node', evt => {
+            const d = evt.target.data();
+            this.showConceptDetails(d);
+        });
+
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    updateVisualizationD3() {
+        // Check if D3 is actually available
+        if (typeof d3 === 'undefined') {
+            console.error('D3.js is not available, falling back to HTML visualization');
+            this.updateVisualizationHTML();
             return;
         }
         
+        // D3.js fallback visualization
+        const container = d3.select("#knowledge-graph");
+        container.selectAll("*").remove();
+        
+        const width = this.width;
+        const height = this.height;
+        
+        const svg = container.append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .style("background", "transparent");
+        
+        const g = svg.append("g");
+        
+        // Add zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 3])
+            .on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            });
+        svg.call(zoom);
+        
+        // Create force simulation
+        const simulation = d3.forceSimulation(this.nodes)
+            .force("link", d3.forceLink(this.links).id(d => d.id).distance(80))
+            .force("charge", d3.forceManyBody().strength(-200))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(20));
+        
         // Create links
-        const link = this.g.append("g")
+        const link = g.append("g")
             .attr("class", "links")
             .selectAll("line")
             .data(this.links)
             .enter().append("line")
-            .attr("class", "link")
-            .attr("stroke-width", d => Math.sqrt(1));
+            .attr("stroke", "#39406a")
+            .attr("stroke-opacity", 0.7)
+            .attr("stroke-width", 1.2);
         
         // Create nodes
-        const node = this.g.append("g")
+        const node = g.append("g")
             .attr("class", "nodes")
             .selectAll("circle")
             .data(this.nodes)
             .enter().append("circle")
-            .attr("class", "node")
-            .attr("r", d => Math.max(8, Math.min(20, (d.categories?.length || 1) * 3 + 8)))
+            .attr("r", d => Math.max(10, Math.min(25, ((d.categories || []).length + 1) * 4 + 8)))
             .attr("fill", d => this.getNodeColor(d))
+            .attr("stroke", "#0b0e1a")
+            .attr("stroke-width", 2)
+            .style("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.35))")
+            .style("cursor", "pointer")
             .call(d3.drag()
                 .on("start", (event, d) => this.dragstarted(event, d))
                 .on("drag", (event, d) => this.dragged(event, d))
                 .on("end", (event, d) => this.dragended(event, d)));
         
         // Add labels
-        const label = this.g.append("g")
+        const label = g.append("g")
             .attr("class", "labels")
             .selectAll("text")
             .data(this.nodes)
             .enter().append("text")
-            .attr("class", "node-label")
+            .text(d => d.label.length > 12 ? d.label.substring(0, 12) + "..." : d.label)
+            .attr("font-size", "10px")
+            .attr("fill", "#e5e7ef")
+            .attr("text-anchor", "middle")
             .attr("dy", "0.35em")
-            .text(d => d.label.length > 15 ? d.label.substring(0, 15) + "..." : d.label);
+            .style("text-shadow", "0 0 3px #0b0e1a, 0 0 3px #0b0e1a")
+            .style("pointer-events", "none");
         
         // Add click events
         node.on("click", (event, d) => this.showConceptDetails(d));
         
         // Add hover effects
-        node.on("mouseover", (event, d) => this.highlightNode(d))
-            .on("mouseout", () => this.clearHighlight());
+        node.on("mouseover", (event, d) => this.highlightNodeD3(d))
+            .on("mouseout", () => this.clearHighlightD3());
         
-        // Update simulation
-        this.simulation
-            .nodes(this.nodes)
-            .on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+        // Update positions on simulation tick
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+            
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+            
+            label
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
+        });
+        
+        // Store references for later use
+        this.d3Svg = svg;
+        this.d3Simulation = simulation;
+        this.d3Nodes = node;
+        this.d3Links = link;
+        this.d3Labels = label;
+        
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    updateVisualizationHTML() {
+        // Basic HTML fallback when no visualization libraries are available
+        const container = document.getElementById('knowledge-graph');
+        container.innerHTML = '';
+        
+        // Create a simple list-based visualization
+        const html = `
+            <div style="padding: 20px; color: #e5e7ef; font-family: 'Segoe UI', system-ui, sans-serif;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h3 style="color: #4fd1c5; margin-bottom: 10px;">Knowledge Graph Data</h3>
+                    <p style="color: #a0aec0; font-size: 14px;">
+                        Visualization libraries unavailable. Showing data in list format.
+                    </p>
+                </div>
                 
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-height: 400px; overflow-y: auto;">
+                    <div>
+                        <h4 style="color: #7aa2f7; margin-bottom: 15px; border-bottom: 1px solid #39406a; padding-bottom: 5px;">
+                            Concepts (${this.nodes.length})
+                        </h4>
+                        <div style="max-height: 300px; overflow-y: auto;">
+                            ${this.nodes.slice(0, 50).map(node => `
+                                <div style="
+                                    margin-bottom: 8px; 
+                                    padding: 8px 12px; 
+                                    background: #171c36; 
+                                    border-radius: 4px; 
+                                    border-left: 3px solid ${this.getNodeColor(node)};
+                                    cursor: pointer;
+                                    transition: background 0.2s;
+                                " class="concept-item" data-concept-id="${node.id}">
+                                    <div style="font-weight: 500; color: #e5e7ef; margin-bottom: 2px;">${node.label}</div>
+                                    ${node.categories && node.categories.length > 0 ? `
+                                        <div style="font-size: 11px; color: #a0aec0;">
+                                            ${node.categories.slice(0, 3).join(', ')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                            ${this.nodes.length > 50 ? `
+                                <div style="text-align: center; padding: 10px; color: #a0aec0; font-size: 12px;">
+                                    ... and ${this.nodes.length - 50} more concepts
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 style="color: #7aa2f7; margin-bottom: 15px; border-bottom: 1px solid #39406a; padding-bottom: 5px;">
+                            Relationships (${this.links.length})
+                        </h4>
+                        <div style="max-height: 300px; overflow-y: auto;">
+                            ${this.links.slice(0, 30).map(link => {
+                                const sourceNode = this.nodes.find(n => n.id === (link.source?.id || link.source));
+                                const targetNode = this.nodes.find(n => n.id === (link.target?.id || link.target));
+                                return `
+                                <div style="
+                                    margin-bottom: 6px; 
+                                    padding: 6px 10px; 
+                                    background: #12162b; 
+                                    border-radius: 3px; 
+                                    font-size: 12px;
+                                ">
+                                    <div style="color: #e5e7ef;">
+                                        <span style="color: #4fd1c5;">${sourceNode ? sourceNode.label : 'Unknown'}</span>
+                                        <span style="color: #a0aec0; margin: 0 5px;">→</span>
+                                        <span style="color: #4fd1c5;">${targetNode ? targetNode.label : 'Unknown'}</span>
+                                    </div>
+                                    <div style="color: #a0aec0; margin-top: 2px; font-size: 10px;">
+                                        ${link.relationship_type || 'RELATES_TO'}
+                                    </div>
+                                </div>
+                            `;
+                            }).join('')}
+                            ${this.links.length > 30 ? `
+                                <div style="text-align: center; padding: 10px; color: #a0aec0; font-size: 12px;">
+                                    ... and ${this.links.length - 30} more relationships
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
                 
-                label
-                    .attr("x", d => d.x)
-                    .attr("y", d => d.y);
+                <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #39406a;">
+                    <p style="color: #a0aec0; font-size: 12px; margin: 0;">
+                        Click on concepts above to view details. Search and other features remain available.
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Add click event listeners to concept items
+        const conceptItems = container.querySelectorAll('.concept-item');
+        conceptItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const conceptId = item.getAttribute('data-concept-id');
+                const node = this.nodes.find(n => n.id === conceptId);
+                if (node) {
+                    this.showConceptDetails(node);
+                }
             });
+        });
         
-        this.simulation.force("link").links(this.links);
-        this.simulation.alpha(1).restart();
+        document.getElementById('loading').style.display = 'none';
+    }
+    
+    highlightNodeD3(node) {
+        if (!this.d3Nodes) return;
+        this.d3Nodes.style("opacity", d => d.id === node.id ? 1 : 0.3);
+        this.d3Links.style("opacity", d => d.source.id === node.id || d.target.id === node.id ? 1 : 0.1);
+        this.d3Labels.style("opacity", d => d.id === node.id ? 1 : 0.3);
+    }
+    
+    clearHighlightD3() {
+        if (!this.d3Nodes) return;
+        this.d3Nodes.style("opacity", 1);
+        this.d3Links.style("opacity", 0.7);
+        this.d3Labels.style("opacity", 1);
+    }
+    
+    // Drag functions for D3
+    dragstarted(event, d) {
+        if (!event.active && this.d3Simulation) this.d3Simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    
+    dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    
+    dragended(event, d) {
+        if (!event.active && this.d3Simulation) this.d3Simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+
+    mergeGraphData(data, replace = true) {
+        // Optionally replace current data or merge new data into existing graph
+        if (replace) {
+            this.nodes = data.nodes || [];
+            this.links = data.edges || [];
+            return;
+        }
+        const nodeIndex = new Map(this.nodes.map(n => [n.id, n]));
+        (data.nodes || []).forEach(n => { if (!nodeIndex.has(n.id)) { this.nodes.push(n); nodeIndex.set(n.id, n); } });
+        const linkKey = (e) => `${e.source}-${e.target}-${e.relationship_type}`;
+        const existing = new Set(this.links.map(e => linkKey({source: e.source?.id || e.source, target: e.target?.id || e.target, relationship_type: e.relationship_type})));
+        (data.edges || []).forEach(e => {
+            const k = linkKey(e);
+            if (!existing.has(k)) this.links.push(e);
+        });
+    }
+
+    async loadSubgraph(root, depth = 2) {
+        const base = window.API_BASE || '';
+        const res = await fetch(`${base}/api/subgraph?root=${encodeURIComponent(root)}&depth=${depth}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+    // Sanitize edges relative to nodes
+    const nodeIds = new Set((data.nodes || []).map(n => n.id));
+    data.edges = (data.edges || []).filter(e => nodeIds.has(e.source?.id || e.source) && nodeIds.has(e.target?.id || e.target));
+    this.mergeGraphData(data, true);
+        this.updateVisualization();
+        const details = document.getElementById('concept-details');
+        details.innerHTML = `<h3>Concept Details</h3><p>Loaded subgraph rooted at <strong>${root}</strong> (depth ${depth}). Nodes: ${this.nodes.length}, Edges: ${this.links.length}.</p>`;
+    }
+
+    async loadShortestPath(source, target, maxDepth = 6) {
+        const base = window.API_BASE || '';
+        const res = await fetch(`${base}/api/path?source=${encodeURIComponent(source)}&target=${encodeURIComponent(target)}&max_depth=${maxDepth}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        this.mergeGraphData(data, true);
+        this.updateVisualization();
+        const ps = document.getElementById('pathSummary');
+        const pathLen = (data.edges || []).length;
+        ps.innerHTML = pathLen > 0 ? `Found path with ${pathLen} steps.` : 'No path found.';
     }
     
     getNodeColor(node) {
         // Color nodes based on categories or other properties
         const colors = {
-            'algebra': '#ff6b6b',
-            'geometry': '#4ecdc4',
-            'analysis': '#45b7d1',
-            'topology': '#96ceb4',
-            'statistics': '#ffeaa7',
-            'probability': '#dda0dd',
-            'calculus': '#98d8c8',
-            'theory': '#a8e6cf'
+            'algebra': '#ff9f7a',
+            'geometry': '#4fd1c5',
+            'analysis': '#7aa2f7',
+            'topology': '#a77bf3',
+            'statistics': '#f6d365',
+            'probability': '#f78fb3',
+            'calculus': '#9ceab3',
+            'theory': '#c3aed6'
         };
         
         if (node.categories && node.categories.length > 0) {
@@ -195,14 +484,15 @@ class KnowledgeGraph {
             }
         }
         
-        return '#667eea'; // Default color
+    return '#7aa2f7'; // Default color
     }
     
     async showConceptDetails(node) {
         const detailsPanel = document.getElementById('concept-details');
         
         try {
-            const response = await fetch(`/api/concept/${encodeURIComponent(node.id)}`);
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/concept/${encodeURIComponent(node.id)}`);
             const data = await response.json();
             
             if (data.error) {
@@ -239,39 +529,71 @@ class KnowledgeGraph {
         }
     }
     
-    focusOnNode(nodeId) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        if (node) {
-            // Center the view on the node
-            const transform = d3.zoomIdentity
-                .translate(this.width / 2 - node.x, this.height / 2 - node.y)
-                .scale(1.5);
-            
-            this.svg.transition()
-                .duration(750)
-                .call(this.zoom.transform, transform);
-            
-            this.showConceptDetails(node);
+    async focusOnNode(nodeId) {
+        if (!this.nodes.find(n => n.id === nodeId)) {
+            try { await this.loadSubgraph(nodeId, 2); } catch(e) { /* ignore */ }
+        }
+        
+        if (this.cy) {
+            // Cytoscape implementation
+            const ele = this.cy.getElementById(nodeId);
+            if (ele && ele.length > 0) {
+                this.cy.animate({ center: { eles: ele }, zoom: 1.2 }, { duration: 450 });
+                this.showConceptDetails(ele.data());
+                this.highlightNode(nodeId);
+            }
+        } else if (this.d3Simulation) {
+            // D3 implementation
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) {
+                this.showConceptDetails(node);
+                this.highlightNodeD3(node);
+            }
+        } else {
+            // HTML fallback implementation
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) {
+                this.showConceptDetails(node);
+                // Scroll to the node in the HTML list if it exists
+                const nodeElement = document.querySelector(`#knowledge-graph [data-concept-id="${nodeId}"]`);
+                if (nodeElement) {
+                    nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Temporarily highlight the element
+                    const originalBg = nodeElement.style.background;
+                    nodeElement.style.background = '#39406a';
+                    setTimeout(() => {
+                        nodeElement.style.background = originalBg;
+                    }, 2000);
+                }
+            }
         }
     }
     
-    highlightNode(node) {
-        // Highlight the node and its connections
-        this.g.selectAll(".node")
-            .classed("highlighted", d => d.id === node.id);
-        
-        this.g.selectAll(".link")
-            .classed("highlighted", d => d.source.id === node.id || d.target.id === node.id);
+    highlightNode(nodeId) {
+        if (this.cy) {
+            this.cy.elements().removeClass('highlighted');
+            const n = this.cy.getElementById(nodeId);
+            n.addClass('highlighted');
+            n.connectedEdges().addClass('highlighted');
+        } else {
+            // D3 highlighting handled in highlightNodeD3
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) this.highlightNodeD3(node);
+        }
     }
     
     clearHighlight() {
-        this.g.selectAll(".node").classed("highlighted", false);
-        this.g.selectAll(".link").classed("highlighted", false);
+        if (this.cy) {
+            this.cy.elements().removeClass('highlighted');
+        } else {
+            this.clearHighlightD3();
+        }
     }
     
     async search(query) {
         try {
-            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/search?q=${encodeURIComponent(query)}`);
             const data = await response.json();
             
             this.displaySearchResults(data.results);
@@ -303,28 +625,23 @@ class KnowledgeGraph {
         resultsPanel.style.display = 'block';
     }
     
-    // Drag functions
-    dragstarted(event, d) {
-        if (!event.active) this.simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-    }
-    
-    dragged(event, d) {
-        d.fx = event.x;
-        d.fy = event.y;
-    }
-    
-    dragended(event, d) {
-        if (!event.active) this.simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-    }
+    // Drag is built-in for Cytoscape
     
     resetView() {
-        this.svg.transition()
-            .duration(750)
-            .call(this.zoom.transform, d3.zoomIdentity);
+        if (this.cy) {
+            this.cy.fit(undefined, 40);
+        } else if (this.d3Svg) {
+            // Reset D3 zoom
+            this.d3Svg.transition()
+                .duration(750)
+                .call(d3.zoom().transform, d3.zoomIdentity);
+        } else {
+            // For HTML fallback, scroll to top
+            const container = document.getElementById('knowledge-graph');
+            if (container) {
+                container.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
     }
 }
 
@@ -366,13 +683,141 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('statsBtn').addEventListener('click', function() {
         graph.loadStats();
     });
+
+    // Analysis inputs
+    const subBtn = document.getElementById('subgraphBtn');
+    if (subBtn) {
+        subBtn.addEventListener('click', () => {
+            document.getElementById('subgraphRoot').focus();
+        });
+    }
+    const runSubgraph = document.getElementById('runSubgraph');
+    if (runSubgraph) {
+        runSubgraph.addEventListener('click', async () => {
+            const root = document.getElementById('subgraphRoot').value.trim();
+            const depth = parseInt(document.getElementById('subgraphDepth').value || '2', 10);
+            if (!root) return;
+            try { await graph.loadSubgraph(root, depth); } catch (e) { alert(e.message); }
+        });
+    }
+
+    const pathBtn = document.getElementById('pathBtn');
+    if (pathBtn) {
+        pathBtn.addEventListener('click', () => {
+            document.getElementById('pathSource').focus();
+        });
+    }
+    const runPath = document.getElementById('runPath');
+    if (runPath) {
+        runPath.addEventListener('click', async () => {
+            const src = document.getElementById('pathSource').value.trim();
+            const tgt = document.getElementById('pathTarget').value.trim();
+            if (!src || !tgt) return;
+            try { await graph.loadShortestPath(src, tgt); } catch (e) { alert(e.message); }
+        });
+    }
     
     // Handle window resize
     window.addEventListener('resize', function() {
-        graph.width = window.innerWidth * 0.7;
-        graph.height = window.innerHeight - 200;
-        graph.svg.attr("width", graph.width).attr("height", graph.height);
-        graph.simulation.force("center", d3.forceCenter(graph.width / 2, graph.height / 2));
-        graph.simulation.alpha(0.3).restart();
+        if (graph && graph.cy) {
+            graph.cy.resize();
+        } else if (graph && graph.d3Svg) {
+            // Update D3 dimensions
+            const newWidth = Math.max(600, window.innerWidth * 0.7);
+            const newHeight = Math.max(400, window.innerHeight - 180);
+            graph.d3Svg.attr("width", newWidth).attr("height", newHeight);
+            if (graph.d3Simulation) {
+                graph.d3Simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+                graph.d3Simulation.alpha(0.3).restart();
+            }
+        }
+        // HTML fallback doesn't need resize handling as it's responsive by default
+    });
+
+    // File upload functionality
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    let selectedFile = null;
+
+    // Click to upload
+    uploadArea.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // Drag and drop functionality
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.style.background = '#171c36';
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.style.background = '#12162b';
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.style.background = '#12162b';
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            selectedFile = files[0];
+            updateUploadUI();
+        }
+    });
+
+    // File selection
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            updateUploadUI();
+        }
+    });
+
+    function updateUploadUI() {
+        if (selectedFile) {
+            uploadArea.querySelector('.upload-text').innerHTML = `
+                <span>Selected: ${selectedFile.name}</span>
+                <br>
+                <small>Size: ${(selectedFile.size / 1024).toFixed(1)} KB</small>
+            `;
+            uploadBtn.disabled = false;
+        }
+    }
+
+    // Upload button click
+    uploadBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        uploadBtn.disabled = true;
+        uploadStatus.innerHTML = '<span style="color: var(--primary);">Processing document...</span>';
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        try {
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            uploadStatus.innerHTML = `<span style="color: var(--accent);">✓ Processed! Found ${result.concept_count} concepts and ${result.relationship_count} relationships</span>`;
+            
+            // Load the newly generated graph
+            graph.mergeGraphData(result, true);
+            graph.updateVisualization();
+
+        } catch (error) {
+            uploadStatus.innerHTML = `<span style="color: #ff6b6b;">Error: ${error.message}</span>`;
+        } finally {
+            uploadBtn.disabled = false;
+        }
     });
 });

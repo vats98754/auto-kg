@@ -5,9 +5,54 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto-KG: Mathematics Knowledge Graph</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Try multiple CDNs for D3.js -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        // Fallback for D3.js from alternative CDNs
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        // Second fallback for D3.js
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"><\/script>');
+        }
+    </script>
+    
+    <!-- Try multiple CDNs for Cytoscape.js -->
+    <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
+    <script>
+        // Fallback for Cytoscape from alternative CDNs
+        if (typeof cytoscape === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.0/dist/cytoscape.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        // Second fallback for Cytoscape
+        if (typeof cytoscape === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.0/cytoscape.min.js"><\/script>');
+        }
+    </script>
+    
+    <script>
+        // Library availability check and fallback initialization
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof cytoscape === 'undefined') {
+                console.log('Cytoscape.js not available, will use D3 fallback');
+            }
+            if (typeof d3 === 'undefined') {
+                console.log('D3.js not available, will use basic HTML fallback');
+            }
+        });
+    </script>
 </head>
 <body>
+        <script>
+            // Set this to your Render service URL when hosting frontend on GitHub Pages
+            // Example: window.API_BASE = 'https://auto-kg-web.onrender.com';
+            window.API_BASE = window.API_BASE || '';
+        </script>
     <div class="container">
         <header>
             <h1>Mathematics Knowledge Graph</h1>
@@ -23,12 +68,14 @@
                 <button id="resetBtn">Reset View</button>
                 <button id="shareBtn">Share Graph</button>
                 <button id="statsBtn">Show Stats</button>
+                <button id="subgraphBtn">Subgraph</button>
+                <button id="pathBtn">Shortest Path</button>
             </div>
         </div>
         
         <div class="main-content">
             <div class="graph-container">
-                <svg id="knowledge-graph"></svg>
+                <div id="knowledge-graph"></div>
                 <div id="loading">Loading knowledge graph...</div>
             </div>
             
@@ -48,6 +95,41 @@
                 <div id="search-results" class="panel" style="display: none;">
                     <h3>Search Results</h3>
                     <div id="results-list"></div>
+                </div>
+
+                <div id="analysis" class="panel">
+                    <h3>Analyze</h3>
+                    <div class="analysis-section">
+                        <div class="stat-item"><span class="stat-label">Subgraph Root</span></div>
+                        <input type="text" id="subgraphRoot" placeholder="e.g., Linear algebra">
+                        <div class="stat-item"><span class="stat-label">Depth</span></div>
+                        <input type="number" id="subgraphDepth" min="1" max="5" value="2">
+                        <button id="runSubgraph">Load Subgraph</button>
+                    </div>
+                    <div class="analysis-section" style="margin-top:1rem;">
+                        <div class="stat-item"><span class="stat-label">Shortest Path</span></div>
+                        <input type="text" id="pathSource" placeholder="Source concept">
+                        <input type="text" id="pathTarget" placeholder="Target concept" style="margin-top:0.5rem;">
+                        <button id="runPath" style="margin-top:0.5rem;">Find Path</button>
+                        <div id="pathSummary" style="margin-top:0.5rem;"></div>
+                    </div>
+                </div>
+
+                <div id="upload-panel" class="panel">
+                    <h3>Upload Document</h3>
+                    <div class="upload-section">
+                        <div class="stat-item"><span class="stat-label">Upload your own document to generate a custom knowledge graph</span></div>
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx" style="display: none;">
+                            <div class="upload-text">
+                                <span>Click to upload or drag & drop</span>
+                                <br>
+                                <small>Supports: TXT, PDF, DOC, DOCX</small>
+                            </div>
+                        </div>
+                        <button id="uploadBtn" style="margin-top:0.5rem;" disabled>Process Document</button>
+                        <div id="uploadStatus" style="margin-top:0.5rem;"></div>
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,12 +1,18 @@
 """
 Flask web application for knowledge graph visualization.
+Includes offline fallback when Neo4j is unavailable.
 """
 
 from flask import Flask, render_template, jsonify, request, url_for
 from flask_cors import CORS
 import json
 import os
+import tempfile
+from collections import deque, defaultdict
+from typing import Dict, List, Set
+from werkzeug.utils import secure_filename
 from auto_kg.database.neo4j_manager import Neo4jKnowledgeGraph
+from auto_kg.utils.document_processor import DocumentProcessor, create_knowledge_graph_from_document
 
 
 def create_app():
@@ -19,6 +25,115 @@ def create_app():
     
     # Initialize Neo4j connection
     kg = Neo4jKnowledgeGraph()
+
+    # Optionally autoload data into Neo4j on first boot if DB is empty
+    try:
+        if getattr(kg, 'driver', None):
+            with kg.driver.session() as session:
+                count = session.run("MATCH (c:Concept) RETURN count(c) as n").single()["n"]
+            autoload_flag = os.getenv('AUTO_KG_AUTOLOAD', 'true').lower() in ('1', 'true', 'yes')
+            if autoload_flag and count == 0:
+                processed_path = os.path.join(os.getcwd(), 'processed_concepts.json')
+                raw_path = os.path.join(os.getcwd(), 'wikipedia_math_data.json')
+                if os.path.exists(processed_path):
+                    with open(processed_path, 'r', encoding='utf-8') as f:
+                        pdata = json.load(f)
+                    kg.load_processed_data(pdata)
+                    print("Auto-loaded processed_concepts.json into Neo4j")
+                elif os.path.exists(raw_path):
+                    with open(raw_path, 'r', encoding='utf-8') as f:
+                        wdata = json.load(f)
+                    kg.load_wikipedia_data(wdata)
+                    print("Auto-loaded wikipedia_math_data.json into Neo4j")
+    except Exception as e:
+        print(f"Autoload skipped due to error: {e}")
+
+    # Offline data cache (populated if DB fails)
+    app.config['OFFLINE_GRAPH'] = None
+    app.config['OFFLINE_INDEX'] = None
+
+    def build_offline_graph() -> Dict:
+        """Build a graph from local JSON files when Neo4j is unavailable."""
+        # Prefer processed concepts for richer relationships
+        data = None
+        processed_path = os.path.join(os.getcwd(), 'processed_concepts.json')
+        raw_path = os.path.join(os.getcwd(), 'wikipedia_math_data.json')
+        if os.path.exists(processed_path):
+            with open(processed_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # Build nodes and edges
+            nodes = []
+            edges = []
+            node_map = {}
+            adj = defaultdict(set)
+            for title, item in data.items():
+                orig = item.get('original_data', {})
+                n = {
+                    'id': str(title),
+                    'label': str(title),
+                    'summary': orig.get('summary', ''),
+                    'url': orig.get('url', ''),
+                    'categories': orig.get('categories', []),
+                }
+                nodes.append(n)
+                node_map[str(title)] = n
+            # relationships
+            for title, item in data.items():
+                title = str(title)
+                for rel in item.get('relationships', []):
+                    try:
+                        src, tgt, rtype = rel
+                    except Exception:
+                        continue
+                    src = str(src); tgt = str(tgt)
+                    if src in node_map and tgt in node_map:
+                        edges.append({'source': src, 'target': tgt, 'relationship_type': str(rtype).upper(), 'properties': {}})
+                        adj[src].add(tgt); adj[tgt].add(src)
+                # add LINKS_TO from original links if connectable
+                for link in (item.get('original_data') or {}).get('links', []):
+                    link = str(link)
+                    if link in node_map:
+                        edges.append({'source': title, 'target': link, 'relationship_type': 'LINKS_TO', 'properties': {}})
+                        adj[title].add(link); adj[link].add(title)
+            return {'nodes': nodes, 'edges': edges, 'adj': adj, 'map': node_map}
+        elif os.path.exists(raw_path):
+            with open(raw_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            nodes = []
+            node_map = {}
+            for title, page in data.items():
+                n = {
+                    'id': str(title),
+                    'label': str(title),
+                    'summary': page.get('summary', ''),
+                    'url': page.get('url', ''),
+                    'categories': page.get('categories', []),
+                }
+                nodes.append(n)
+                node_map[str(title)] = n
+            # Only keep edges where target exists (to avoid bloat)
+            edges = []
+            adj = defaultdict(set)
+            for title, page in data.items():
+                title = str(title)
+                for link in page.get('links', []):
+                    link = str(link)
+                    if link in node_map and title in node_map:
+                        edges.append({'source': title, 'target': link, 'relationship_type': 'LINKS_TO', 'properties': {}})
+                        adj[title].add(link); adj[link].add(title)
+            return {'nodes': nodes, 'edges': edges, 'adj': adj, 'map': node_map}
+        else:
+            return {'nodes': [], 'edges': [], 'adj': defaultdict(set), 'map': {}}
+
+    def ensure_offline_graph():
+        if app.config['OFFLINE_GRAPH'] is None:
+            app.config['OFFLINE_GRAPH'] = build_offline_graph()
+            # index for search
+            idx = {}
+            for n in app.config['OFFLINE_GRAPH']['nodes']:
+                idx[n['id']] = n
+            app.config['OFFLINE_INDEX'] = idx
+        return app.config['OFFLINE_GRAPH']
     
     @app.route('/')
     def index():
@@ -30,9 +145,22 @@ def create_app():
         """API endpoint to get the full knowledge graph data."""
         try:
             graph_data = kg.export_graph_data()
-            return jsonify(graph_data)
+            # Filter out edges that point to non-existent nodes
+            nodes = graph_data.get('nodes', [])
+            edges = graph_data.get('edges', [])
+            node_ids = {n.get('id') for n in nodes}
+            clean_edges = []
+            for e in edges:
+                s = e.get('source'); t = e.get('target')
+                if isinstance(s, dict): s = s.get('id')
+                if isinstance(t, dict): t = t.get('id')
+                if s in node_ids and t in node_ids:
+                    clean_edges.append(e)
+            return jsonify({'nodes': nodes, 'edges': clean_edges})
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            # Fallback to offline data
+            offline = ensure_offline_graph()
+            return jsonify({'nodes': offline['nodes'], 'edges': offline['edges'], 'offline': True})
     
     @app.route('/api/concept/<concept_name>')
     def get_concept(concept_name):
@@ -46,7 +174,16 @@ def create_app():
                     'related': related
                 })
             else:
-                return jsonify({'error': 'Concept not found'}), 404
+                # Fallback to offline
+                offline = ensure_offline_graph()
+                node = offline['map'].get(concept_name)
+                if not node:
+                    return jsonify({'error': 'Concept not found'}), 404
+                # related via adjacency (undirected)
+                related = []
+                for neigh in offline['adj'].get(concept_name, []):
+                    related.append({'concept': offline['map'].get(neigh, {'title': neigh}), 'relationship_type': 'RELATED', 'relationship_props': {}})
+                return jsonify({'concept': {'title': node['id'], 'summary': node.get('summary',''), 'url': node.get('url',''), 'categories': node.get('categories',[])}, 'related': related})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
@@ -60,7 +197,16 @@ def create_app():
             results = kg.search_concepts(query, limit)
             return jsonify({'results': results})
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            # Offline search
+            offline = ensure_offline_graph()
+            q = (query or '').lower().strip()
+            hits = []
+            for n in offline['nodes']:
+                if q in n['id'].lower() or q in (n.get('summary','').lower()):
+                    hits.append({'title': n['id'], 'summary': n.get('summary','')})
+                    if len(hits) >= limit:
+                        break
+            return jsonify({'results': hits, 'offline': True})
     
     @app.route('/api/stats')
     def get_stats():
@@ -69,7 +215,211 @@ def create_app():
             stats = kg.get_graph_stats()
             return jsonify(stats)
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            # Offline stats
+            offline = ensure_offline_graph()
+            concept_count = len(offline['nodes'])
+            relationship_count = len(offline['edges'])
+            # Basic degree
+            deg = {n['id']: len(offline['adj'].get(n['id'], [])) for n in offline['nodes']}
+            most_connected = sorted(deg.items(), key=lambda x: x[1], reverse=True)[:10]
+            rel_types = defaultdict(int)
+            for e in offline['edges']:
+                rel_types[e.get('relationship_type','RELATES_TO')] += 1
+            return jsonify({
+                'concept_count': concept_count,
+                'relationship_count': relationship_count,
+                'relationship_types': rel_types,
+                'most_connected': most_connected,
+                'offline': True
+            })
+
+    @app.route('/api/subgraph')
+    def get_subgraph():
+        """API endpoint to get a subgraph around a root node."""
+        root = request.args.get('root')
+        depth = int(request.args.get('depth', 2))
+        if not root:
+            return jsonify({'error': 'Missing root parameter'}), 400
+        try:
+            data = kg.export_subgraph(root=root, depth=depth)
+            # Sanitize edges
+            node_ids = {n.get('id') for n in data.get('nodes', [])}
+            clean_edges = []
+            for e in data.get('edges', []):
+                s = e.get('source'); t = e.get('target')
+                if isinstance(s, dict): s = s.get('id')
+                if isinstance(t, dict): t = t.get('id')
+                if s in node_ids and t in node_ids:
+                    clean_edges.append(e)
+            return jsonify({'nodes': data.get('nodes', []), 'edges': clean_edges})
+        except Exception as e:
+            # Offline BFS subgraph (undirected)
+            offline = ensure_offline_graph()
+            adj = offline['adj']
+            node_map = offline['map']
+            if root not in node_map:
+                # try case-insensitive match
+                lower = root.lower()
+                match = next((k for k in node_map if k.lower() == lower), None)
+                if match is None:
+                    return jsonify({'error': 'Root not found', 'suggestion': 'Check capitalization or search first'}), 404
+                root = match
+            max_depth = max(1, min(depth, 5))
+            seen: Set[str] = set([root])
+            q = deque([(root, 0)])
+            nodes = []
+            edges = []
+            while q:
+                cur, d = q.popleft()
+                n = node_map[cur]
+                nodes.append(n)
+                if d == max_depth:
+                    continue
+                for nb in adj.get(cur, []):
+                    if nb not in seen:
+                        seen.add(nb)
+                        q.append((nb, d+1))
+                    # collect edges (undirected unique key)
+                    edges.append({'source': cur, 'target': nb, 'relationship_type': 'RELATED', 'properties': {}})
+            # Dedup edges
+            uniq = {}
+            for e in edges:
+                a, b = e['source'], e['target']
+                k = tuple(sorted([a, b]))
+                if k not in uniq:
+                    uniq[k] = e
+            return jsonify({'nodes': nodes, 'edges': list(uniq.values()), 'offline': True})
+
+    @app.route('/api/path')
+    def get_path():
+        """API endpoint to get shortest path between two concepts."""
+        source = request.args.get('source')
+        target = request.args.get('target')
+        max_depth = int(request.args.get('max_depth', 6))
+        if not source or not target:
+            return jsonify({'error': 'Missing source or target parameter'}), 400
+        try:
+            data = kg.shortest_path(source=source, target=target, max_depth=max_depth)
+            return jsonify(data)
+        except Exception as e:
+            # Offline BFS shortest path (undirected)
+            offline = ensure_offline_graph()
+            adj = offline['adj']
+            node_map = offline['map']
+            if source not in node_map or target not in node_map:
+                return jsonify({'nodes': [], 'edges': [], 'offline': True})
+            # BFS
+            max_depth = max(1, min(max_depth, 10))
+            prev = {source: None}
+            q = deque([source])
+            found = False
+            depth_map = {source: 0}
+            while q:
+                cur = q.popleft()
+                if depth_map[cur] >= max_depth:
+                    continue
+                for nb in adj.get(cur, []):
+                    if nb not in prev:
+                        prev[nb] = cur
+                        depth_map[nb] = depth_map[cur] + 1
+                        if nb == target:
+                            found = True
+                            q.clear()
+                            break
+                        q.append(nb)
+            if not found:
+                return jsonify({'nodes': [], 'edges': [], 'offline': True})
+            # Reconstruct
+            path = []
+            cur = target
+            while cur is not None:
+                path.append(cur)
+                cur = prev[cur]
+            path.reverse()
+            nodes = [node_map[n] for n in path]
+            edges = []
+            for i in range(len(path)-1):
+                edges.append({'source': path[i], 'target': path[i+1], 'relationship_type': 'RELATED', 'properties': {}})
+            return jsonify({'nodes': nodes, 'edges': edges, 'offline': True})
+
+    @app.route('/api/health')
+    def health():
+        ok = bool(getattr(kg, 'driver', None))
+        return jsonify({'neo4j': ok})
+
+    @app.route('/api/upload', methods=['POST'])
+    def upload_document():
+        """API endpoint to handle document uploads and generate knowledge graphs."""
+        try:
+            # Check if file was uploaded
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+            
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Initialize document processor
+            processor = DocumentProcessor()
+            
+            # Check if file type is supported
+            if not processor.is_supported(file.filename):
+                return jsonify({'error': f'Unsupported file type. Supported: TXT, PDF, DOC, DOCX'}), 400
+            
+            # Save uploaded file temporarily
+            filename = secure_filename(file.filename)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
+                file.save(temp_file.name)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Process the document
+                document_data = processor.process_file(temp_file_path, filename)
+                
+                # Generate knowledge graph
+                graph_data = create_knowledge_graph_from_document(document_data)
+                
+                # Try to save to Neo4j if available
+                try:
+                    if hasattr(kg, 'driver') and kg.driver:
+                        # Convert to Neo4j format and save
+                        processed_data = {
+                            document_data['title']: {
+                                'title': document_data['title'],
+                                'concepts': [node['label'] for node in graph_data['nodes']],
+                                'relationships': [(edge['source'], edge['target'], edge['relationship_type']) 
+                                                for edge in graph_data['edges']],
+                                'original_data': {
+                                    'title': document_data['title'],
+                                    'summary': document_data['content'][:500] + "..." if len(document_data['content']) > 500 else document_data['content'],
+                                    'url': f"uploaded://{filename}",
+                                    'categories': ['User Upload'],
+                                    'links': []
+                                }
+                            }
+                        }
+                        kg.load_processed_data(processed_data)
+                except Exception as e:
+                    print(f"Failed to save to Neo4j: {e}")
+                
+                # Return the graph data for immediate display
+                return jsonify({
+                    'nodes': graph_data['nodes'],
+                    'edges': graph_data['edges'],
+                    'concept_count': graph_data['metadata']['concept_count'],
+                    'relationship_count': graph_data['metadata']['relationship_count'],
+                    'message': f'Successfully processed {filename}'
+                })
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    pass
+            
+        except Exception as e:
+            return jsonify({'error': f'Error processing document: {str(e)}'}), 500
     
     @app.route('/share/<graph_id>')
     def share_graph(graph_id):

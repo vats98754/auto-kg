@@ -63,7 +63,7 @@ The application provides a comprehensive CLI for different operations:
 
 ```bash
 # Scrape Wikipedia for mathematical concepts
-python main.py scrape --max-pages 50 --language en
+python main.py scrape --max-pages 200 --max-depth 3 --language en --seed-topics "Mathematics" "Linear algebra" "Topology"
 
 # Process scraped data with LLM
 python main.py process --input wikipedia_math_data.json --model-type rule_based
@@ -71,12 +71,20 @@ python main.py process --input wikipedia_math_data.json --model-type rule_based
 # Load data into Neo4j
 python main.py load --input wikipedia_math_data.json --clear
 
+# Load processed concepts (typed relationships) into Neo4j
+python main.py load-processed --input processed_concepts.json --clear
+
 # Start the web application
 python main.py web --port 5000
 
 # Run the complete pipeline
 python main.py full --max-pages 30 --serve --clear-db
 ```
+
+### Subgraph and Path Analysis (Web UI)
+
+- Use the Analyze panel to load a subgraph rooted at a concept up to a given depth
+- Find a shortest path between two concepts; the graph view updates to that path
 
 ### Web Interface
 
