@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto-KG: Mathematics Knowledge Graph</title>
+    <title>Auto-KG: Generalized Knowledge Graph Generator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- Try multiple CDNs for D3.js -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -55,13 +55,13 @@
         </script>
     <div class="container">
         <header>
-            <h1>Mathematics Knowledge Graph</h1>
-            <p>Interactive visualization of mathematical concepts and their relationships</p>
+            <h1>Generalized Knowledge Graph</h1>
+            <p>Interactive visualization of concepts and relationships from any domain</p>
         </header>
         
         <div class="controls">
             <div class="search-container">
-                <input type="text" id="searchInput" placeholder="Search mathematical concepts...">
+                <input type="text" id="searchInput" placeholder="Search concepts...">
                 <button id="searchBtn">Search</button>
             </div>
             <div class="control-buttons">
@@ -101,7 +101,7 @@
                     <h3>Analyze</h3>
                     <div class="analysis-section">
                         <div class="stat-item"><span class="stat-label">Subgraph Root</span></div>
-                        <input type="text" id="subgraphRoot" placeholder="e.g., Linear algebra">
+                        <input type="text" id="subgraphRoot" placeholder="e.g., Climate change">
                         <div class="stat-item"><span class="stat-label">Depth</span></div>
                         <input type="number" id="subgraphDepth" min="1" max="5" value="2">
                         <button id="runSubgraph">Load Subgraph</button>
@@ -118,7 +118,7 @@
                 <div id="upload-panel" class="panel">
                     <h3>Upload Document</h3>
                     <div class="upload-section">
-                        <div class="stat-item"><span class="stat-label">Upload your own document to generate a custom knowledge graph</span></div>
+                        <div class="stat-item"><span class="stat-label">Upload any document to automatically extract key concepts and generate a knowledge graph from any domain</span></div>
                         <div class="upload-area" id="uploadArea">
                             <input type="file" id="fileInput" accept=".txt,.pdf,.doc,.docx" style="display: none;">
                             <div class="upload-text">

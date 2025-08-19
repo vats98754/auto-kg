@@ -104,6 +104,7 @@ class DocumentProcessor:
 def create_knowledge_graph_from_document(document_data: Dict[str, str]) -> Dict:
     """
     Create a knowledge graph from processed document data.
+    Uses free LLM inference when possible, falls back to rule-based.
     
     Args:
         document_data: Processed document with text content
@@ -113,10 +114,10 @@ def create_knowledge_graph_from_document(document_data: Dict[str, str]) -> Dict:
     """
     from auto_kg.llm.concept_extractor import ConceptExtractor
     
-    # Initialize concept extractor
-    extractor = ConceptExtractor(model_type='rule_based')
+    # Try to use free LLM (Hugging Face) first, fall back to rule-based
+    extractor = ConceptExtractor(model_type='huggingface')
     
-    # Create a fake Wikipedia page format for the processor
+    # Create a page format for the processor
     page_data = {
         'title': document_data['title'],
         'summary': document_data['content'][:500] + "..." if len(document_data['content']) > 500 else document_data['content'],
@@ -184,6 +185,7 @@ def create_knowledge_graph_from_document(document_data: Dict[str, str]) -> Dict:
             'document_title': document_data['title'],
             'filename': document_data['filename'],
             'concept_count': len(nodes),
-            'relationship_count': len(edges)
+            'relationship_count': len(edges),
+            'extraction_method': extractor.model_type
         }
     }
