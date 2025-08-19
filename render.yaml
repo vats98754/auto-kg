@@ -3,13 +3,13 @@ services:
     name: auto-kg-web
     env: python
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-  startCommand: gunicorn -w 2 -k gthread -b 0.0.0.0:$PORT 'auto_kg.web.app:create_app()'
+    startCommand: gunicorn -w 2 -k gthread --timeout 120 -b 0.0.0.0:$PORT 'auto_kg.web.app:create_app()'
     plan: free
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
       - key: NEO4J_URI
-        sync: false
+        value: bolt://auto-kg-neo4j:7687
       - key: NEO4J_USER
         value: neo4j
       - key: NEO4J_PASSWORD
@@ -21,10 +21,14 @@ services:
     dockerfilePath: neo4j/Dockerfile
     plan: free
     envVars:
+      - key: NEO4J_AUTH
+        sync: false
       - key: NEO4J_dbms_memory_heap_initial__size
         value: 256m
       - key: NEO4J_dbms_memory_heap_max__size
         value: 512m
+      - key: NEO4J_dbms_memory_pagecache_size
+        value: 128m
     disk:
       name: neo4j-data
       mountPath: /data
