@@ -29,7 +29,3 @@ services:
         value: 512m
       - key: NEO4J_dbms_memory_pagecache_size
         value: 128m
-    disk:
-      name: neo4j-data
-      mountPath: /data
-      sizeGB: 1
