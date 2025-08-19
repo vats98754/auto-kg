@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,8 +21,17 @@ wheels/
 *.egg
 MANIFEST
 
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
 # Environment variables
 .env
+.env.local
+.env.production
 
 # IDE
 .vscode/
@@ -31,11 +41,51 @@ MANIFEST
 
 # Logs
 *.log
+logs/
 
 # Database
 *.db
 *.sqlite3
 
+# Neo4j local data (keep seed files)
+neo4j/data/
+neo4j/logs/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Application specific - keep sample data for deployment
+# wikipedia_math_data.json (commented out to keep sample data)
+# processed_concepts.json (commented out to keep sample data)
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Documentation builds
+docs/_build/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
