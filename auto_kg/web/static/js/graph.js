@@ -88,12 +88,18 @@ class KnowledgeGraph {
         if (!this.nodes || this.nodes.length === 0) return;
         
         // Check if Cytoscape is available
-        if (typeof cytoscape === 'undefined') {
+        if (typeof cytoscape !== 'undefined') {
+            this.updateVisualizationCytoscape();
+        } else if (typeof d3 !== 'undefined') {
             console.warn('Cytoscape.js not available, using D3.js fallback');
             this.updateVisualizationD3();
-            return;
+        } else {
+            console.warn('Neither Cytoscape.js nor D3.js available, using basic HTML fallback');
+            this.updateVisualizationHTML();
         }
-        
+    }
+
+    updateVisualizationCytoscape() {
         const elements = [];
         const nodeSet = new Set();
         this.nodes.forEach(n => {
@@ -157,9 +163,18 @@ class KnowledgeGraph {
             const d = evt.target.data();
             this.showConceptDetails(d);
         });
+
+        document.getElementById('loading').style.display = 'none';
     }
 
     updateVisualizationD3() {
+        // Check if D3 is actually available
+        if (typeof d3 === 'undefined') {
+            console.error('D3.js is not available, falling back to HTML visualization');
+            this.updateVisualizationHTML();
+            return;
+        }
+        
         // D3.js fallback visualization
         const container = d3.select("#knowledge-graph");
         container.selectAll("*").remove();
@@ -260,6 +275,114 @@ class KnowledgeGraph {
         this.d3Nodes = node;
         this.d3Links = link;
         this.d3Labels = label;
+        
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    updateVisualizationHTML() {
+        // Basic HTML fallback when no visualization libraries are available
+        const container = document.getElementById('knowledge-graph');
+        container.innerHTML = '';
+        
+        // Create a simple list-based visualization
+        const html = `
+            <div style="padding: 20px; color: #e5e7ef; font-family: 'Segoe UI', system-ui, sans-serif;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h3 style="color: #4fd1c5; margin-bottom: 10px;">Knowledge Graph Data</h3>
+                    <p style="color: #a0aec0; font-size: 14px;">
+                        Visualization libraries unavailable. Showing data in list format.
+                    </p>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-height: 400px; overflow-y: auto;">
+                    <div>
+                        <h4 style="color: #7aa2f7; margin-bottom: 15px; border-bottom: 1px solid #39406a; padding-bottom: 5px;">
+                            Concepts (${this.nodes.length})
+                        </h4>
+                        <div style="max-height: 300px; overflow-y: auto;">
+                            ${this.nodes.slice(0, 50).map(node => `
+                                <div style="
+                                    margin-bottom: 8px; 
+                                    padding: 8px 12px; 
+                                    background: #171c36; 
+                                    border-radius: 4px; 
+                                    border-left: 3px solid ${this.getNodeColor(node)};
+                                    cursor: pointer;
+                                    transition: background 0.2s;
+                                " class="concept-item" data-concept-id="${node.id}">
+                                    <div style="font-weight: 500; color: #e5e7ef; margin-bottom: 2px;">${node.label}</div>
+                                    ${node.categories && node.categories.length > 0 ? `
+                                        <div style="font-size: 11px; color: #a0aec0;">
+                                            ${node.categories.slice(0, 3).join(', ')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                            ${this.nodes.length > 50 ? `
+                                <div style="text-align: center; padding: 10px; color: #a0aec0; font-size: 12px;">
+                                    ... and ${this.nodes.length - 50} more concepts
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 style="color: #7aa2f7; margin-bottom: 15px; border-bottom: 1px solid #39406a; padding-bottom: 5px;">
+                            Relationships (${this.links.length})
+                        </h4>
+                        <div style="max-height: 300px; overflow-y: auto;">
+                            ${this.links.slice(0, 30).map(link => {
+                                const sourceNode = this.nodes.find(n => n.id === (link.source?.id || link.source));
+                                const targetNode = this.nodes.find(n => n.id === (link.target?.id || link.target));
+                                return `
+                                <div style="
+                                    margin-bottom: 6px; 
+                                    padding: 6px 10px; 
+                                    background: #12162b; 
+                                    border-radius: 3px; 
+                                    font-size: 12px;
+                                ">
+                                    <div style="color: #e5e7ef;">
+                                        <span style="color: #4fd1c5;">${sourceNode ? sourceNode.label : 'Unknown'}</span>
+                                        <span style="color: #a0aec0; margin: 0 5px;">→</span>
+                                        <span style="color: #4fd1c5;">${targetNode ? targetNode.label : 'Unknown'}</span>
+                                    </div>
+                                    <div style="color: #a0aec0; margin-top: 2px; font-size: 10px;">
+                                        ${link.relationship_type || 'RELATES_TO'}
+                                    </div>
+                                </div>
+                            `;
+                            }).join('')}
+                            ${this.links.length > 30 ? `
+                                <div style="text-align: center; padding: 10px; color: #a0aec0; font-size: 12px;">
+                                    ... and ${this.links.length - 30} more relationships
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #39406a;">
+                    <p style="color: #a0aec0; font-size: 12px; margin: 0;">
+                        Click on concepts above to view details. Search and other features remain available.
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Add click event listeners to concept items
+        const conceptItems = container.querySelectorAll('.concept-item');
+        conceptItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const conceptId = item.getAttribute('data-concept-id');
+                const node = this.nodes.find(n => n.id === conceptId);
+                if (node) {
+                    this.showConceptDetails(node);
+                }
+            });
+        });
         
         document.getElementById('loading').style.display = 'none';
     }
@@ -412,6 +535,7 @@ class KnowledgeGraph {
         }
         
         if (this.cy) {
+            // Cytoscape implementation
             const ele = this.cy.getElementById(nodeId);
             if (ele && ele.length > 0) {
                 this.cy.animate({ center: { eles: ele }, zoom: 1.2 }, { duration: 450 });
@@ -419,11 +543,28 @@ class KnowledgeGraph {
                 this.highlightNode(nodeId);
             }
         } else if (this.d3Simulation) {
-            // D3 focus implementation
+            // D3 implementation
             const node = this.nodes.find(n => n.id === nodeId);
             if (node) {
                 this.showConceptDetails(node);
                 this.highlightNodeD3(node);
+            }
+        } else {
+            // HTML fallback implementation
+            const node = this.nodes.find(n => n.id === nodeId);
+            if (node) {
+                this.showConceptDetails(node);
+                // Scroll to the node in the HTML list if it exists
+                const nodeElement = document.querySelector(`#knowledge-graph [data-concept-id="${nodeId}"]`);
+                if (nodeElement) {
+                    nodeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Temporarily highlight the element
+                    const originalBg = nodeElement.style.background;
+                    nodeElement.style.background = '#39406a';
+                    setTimeout(() => {
+                        nodeElement.style.background = originalBg;
+                    }, 2000);
+                }
             }
         }
     }
@@ -494,6 +635,12 @@ class KnowledgeGraph {
             this.d3Svg.transition()
                 .duration(750)
                 .call(d3.zoom().transform, d3.zoomIdentity);
+        } else {
+            // For HTML fallback, scroll to top
+            const container = document.getElementById('knowledge-graph');
+            if (container) {
+                container.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         }
     }
 }
@@ -584,6 +731,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 graph.d3Simulation.alpha(0.3).restart();
             }
         }
+        // HTML fallback doesn't need resize handling as it's responsive by default
     });
 
     // File upload functionality

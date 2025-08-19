@@ -5,16 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto-KG: Mathematics Knowledge Graph</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Try multiple CDNs for D3.js -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        // Simple fallback check for cytoscape
+        // Fallback for D3.js from alternative CDNs
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        // Second fallback for D3.js
+        if (typeof d3 === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"><\/script>');
+        }
+    </script>
+    
+    <!-- Try multiple CDNs for Cytoscape.js -->
+    <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
+    <script>
+        // Fallback for Cytoscape from alternative CDNs
+        if (typeof cytoscape === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.0/dist/cytoscape.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        // Second fallback for Cytoscape
+        if (typeof cytoscape === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.0/cytoscape.min.js"><\/script>');
+        }
+    </script>
+    
+    <script>
+        // Library availability check and fallback initialization
         window.addEventListener('DOMContentLoaded', function() {
             if (typeof cytoscape === 'undefined') {
-                console.log('Cytoscape.js not available, will use canvas fallback');
+                console.log('Cytoscape.js not available, will use D3 fallback');
+            }
+            if (typeof d3 === 'undefined') {
+                console.log('D3.js not available, will use basic HTML fallback');
             }
         });
     </script>
-    <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
 </head>
 <body>
         <script>
