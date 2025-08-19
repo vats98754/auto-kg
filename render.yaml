@@ -15,7 +15,7 @@ services:
       - key: NEO4J_PASSWORD
         sync: false
     healthCheckPath: /api/health
-  - type: private_service
+  - type: pserv
     name: auto-kg-neo4j
     runtime: docker
     dockerfilePath: neo4j/Dockerfile
