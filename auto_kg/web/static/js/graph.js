@@ -1,33 +1,14 @@
-// Knowledge Graph Visualization with D3.js
+// Knowledge Graph Visualization with Cytoscape.js
 
 class KnowledgeGraph {
     constructor() {
-        this.svg = d3.select("#knowledge-graph");
-        this.width = window.innerWidth * 0.7;
-        this.height = window.innerHeight - 200;
-        
-        this.svg.attr("width", this.width).attr("height", this.height);
-        
-        this.g = this.svg.append("g");
-        
-        // Add zoom behavior
-        this.zoom = d3.zoom()
-            .scaleExtent([0.1, 3])
-            .on("zoom", (event) => {
-                this.g.attr("transform", event.transform);
-            });
-            
-        this.svg.call(this.zoom);
-        
-        // Force simulation
-        this.simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(80))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("center", d3.forceCenter(this.width / 2, this.height / 2))
-            .force("collision", d3.forceCollide().radius(30));
-        
+    this.container = document.getElementById('knowledge-graph');
+    this.width = Math.max(600, window.innerWidth * 0.7);
+    this.height = Math.max(400, window.innerHeight - 180);
+
         this.nodes = [];
         this.links = [];
+    this.cy = null;
         
         this.init();
     }
@@ -36,12 +17,12 @@ class KnowledgeGraph {
         // Load initial data
         this.loadGraphData();
         this.loadStats();
-        this.setupEventListeners();
     }
     
     async loadGraphData() {
         try {
-            const response = await fetch('/api/graph');
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/graph`);
             const data = await response.json();
             
             if (data.error) {
@@ -63,7 +44,8 @@ class KnowledgeGraph {
     
     async loadStats() {
         try {
-            const response = await fetch('/api/stats');
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/stats`);
             const stats = await response.json();
             
             this.displayStats(stats);
@@ -103,87 +85,113 @@ class KnowledgeGraph {
     }
     
     updateVisualization() {
-        // Clear existing elements
-        this.g.selectAll("*").remove();
-        
-        if (this.nodes.length === 0) {
+        if (!this.nodes || this.nodes.length === 0) return;
+        const elements = [];
+        const nodeSet = new Set();
+        this.nodes.forEach(n => {
+            const size = Math.max(20, Math.min(40, ((n.categories || []).length + 1) * 6));
+            const color = this.getNodeColor(n);
+            elements.push({ data: { id: n.id, label: n.label, url: n.url, summary: n.summary, categories: n.categories, size, color }, classes: 'concept' });
+            nodeSet.add(n.id);
+        });
+        this.links.forEach(e => {
+            const sid = e.source?.id || e.source;
+            const tid = e.target?.id || e.target;
+            if (sid && tid && nodeSet.has(sid) && nodeSet.has(tid)) {
+                const type = e.relationship_type || 'RELATES_TO';
+                elements.push({ data: { id: `${sid}->${tid}-${type}`, source: sid, target: tid, type }, classes: 'rel' });
+            }
+        });
+        if (this.cy) { this.cy.destroy(); }
+        this.cy = cytoscape({
+            container: this.container,
+            elements,
+            style: [
+                { selector: 'node', style: {
+                    'background-color': 'data(color)',
+                    'label': 'data(label)',
+                    'color': '#e5e7ef',
+                    'font-size': '12px',
+                    'text-outline-color': '#0b0e1a',
+                    'text-outline-width': 3,
+                    'width': 'data(size)',
+                    'height': 'data(size)'
+                }},
+                { selector: 'edge', style: {
+                    'width': 1.5,
+                    'line-color': '#39406a',
+                    'target-arrow-color': '#39406a',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier'
+                }},
+                { selector: '.highlighted', style: {
+                    'line-color': '#4fd1c5',
+                    'target-arrow-color': '#4fd1c5'
+                }}
+            ],
+            layout: { name: 'cose', padding: 30, nodeRepulsion: 8000, idealEdgeLength: 120, edgeElasticity: 0.1, gravity: 1.5, numIter: 500, initialTemp: 200 }
+        });
+
+        this.cy.on('tap', 'node', evt => {
+            const d = evt.target.data();
+            this.showConceptDetails(d);
+        });
+    }
+
+    mergeGraphData(data, replace = true) {
+        // Optionally replace current data or merge new data into existing graph
+        if (replace) {
+            this.nodes = data.nodes || [];
+            this.links = data.edges || [];
             return;
         }
-        
-        // Create links
-        const link = this.g.append("g")
-            .attr("class", "links")
-            .selectAll("line")
-            .data(this.links)
-            .enter().append("line")
-            .attr("class", "link")
-            .attr("stroke-width", d => Math.sqrt(1));
-        
-        // Create nodes
-        const node = this.g.append("g")
-            .attr("class", "nodes")
-            .selectAll("circle")
-            .data(this.nodes)
-            .enter().append("circle")
-            .attr("class", "node")
-            .attr("r", d => Math.max(8, Math.min(20, (d.categories?.length || 1) * 3 + 8)))
-            .attr("fill", d => this.getNodeColor(d))
-            .call(d3.drag()
-                .on("start", (event, d) => this.dragstarted(event, d))
-                .on("drag", (event, d) => this.dragged(event, d))
-                .on("end", (event, d) => this.dragended(event, d)));
-        
-        // Add labels
-        const label = this.g.append("g")
-            .attr("class", "labels")
-            .selectAll("text")
-            .data(this.nodes)
-            .enter().append("text")
-            .attr("class", "node-label")
-            .attr("dy", "0.35em")
-            .text(d => d.label.length > 15 ? d.label.substring(0, 15) + "..." : d.label);
-        
-        // Add click events
-        node.on("click", (event, d) => this.showConceptDetails(d));
-        
-        // Add hover effects
-        node.on("mouseover", (event, d) => this.highlightNode(d))
-            .on("mouseout", () => this.clearHighlight());
-        
-        // Update simulation
-        this.simulation
-            .nodes(this.nodes)
-            .on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
-                
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
-                
-                label
-                    .attr("x", d => d.x)
-                    .attr("y", d => d.y);
-            });
-        
-        this.simulation.force("link").links(this.links);
-        this.simulation.alpha(1).restart();
+        const nodeIndex = new Map(this.nodes.map(n => [n.id, n]));
+        (data.nodes || []).forEach(n => { if (!nodeIndex.has(n.id)) { this.nodes.push(n); nodeIndex.set(n.id, n); } });
+        const linkKey = (e) => `${e.source}-${e.target}-${e.relationship_type}`;
+        const existing = new Set(this.links.map(e => linkKey({source: e.source?.id || e.source, target: e.target?.id || e.target, relationship_type: e.relationship_type})));
+        (data.edges || []).forEach(e => {
+            const k = linkKey(e);
+            if (!existing.has(k)) this.links.push(e);
+        });
+    }
+
+    async loadSubgraph(root, depth = 2) {
+        const base = window.API_BASE || '';
+        const res = await fetch(`${base}/api/subgraph?root=${encodeURIComponent(root)}&depth=${depth}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+    // Sanitize edges relative to nodes
+    const nodeIds = new Set((data.nodes || []).map(n => n.id));
+    data.edges = (data.edges || []).filter(e => nodeIds.has(e.source?.id || e.source) && nodeIds.has(e.target?.id || e.target));
+    this.mergeGraphData(data, true);
+        this.updateVisualization();
+        const details = document.getElementById('concept-details');
+        details.innerHTML = `<h3>Concept Details</h3><p>Loaded subgraph rooted at <strong>${root}</strong> (depth ${depth}). Nodes: ${this.nodes.length}, Edges: ${this.links.length}.</p>`;
+    }
+
+    async loadShortestPath(source, target, maxDepth = 6) {
+        const base = window.API_BASE || '';
+        const res = await fetch(`${base}/api/path?source=${encodeURIComponent(source)}&target=${encodeURIComponent(target)}&max_depth=${maxDepth}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        this.mergeGraphData(data, true);
+        this.updateVisualization();
+        const ps = document.getElementById('pathSummary');
+        const pathLen = (data.edges || []).length;
+        ps.innerHTML = pathLen > 0 ? `Found path with ${pathLen} steps.` : 'No path found.';
     }
     
     getNodeColor(node) {
         // Color nodes based on categories or other properties
         const colors = {
-            'algebra': '#ff6b6b',
-            'geometry': '#4ecdc4',
-            'analysis': '#45b7d1',
-            'topology': '#96ceb4',
-            'statistics': '#ffeaa7',
-            'probability': '#dda0dd',
-            'calculus': '#98d8c8',
-            'theory': '#a8e6cf'
+            'algebra': '#ff9f7a',
+            'geometry': '#4fd1c5',
+            'analysis': '#7aa2f7',
+            'topology': '#a77bf3',
+            'statistics': '#f6d365',
+            'probability': '#f78fb3',
+            'calculus': '#9ceab3',
+            'theory': '#c3aed6'
         };
         
         if (node.categories && node.categories.length > 0) {
@@ -195,14 +203,15 @@ class KnowledgeGraph {
             }
         }
         
-        return '#667eea'; // Default color
+    return '#7aa2f7'; // Default color
     }
     
     async showConceptDetails(node) {
         const detailsPanel = document.getElementById('concept-details');
         
         try {
-            const response = await fetch(`/api/concept/${encodeURIComponent(node.id)}`);
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/concept/${encodeURIComponent(node.id)}`);
             const data = await response.json();
             
             if (data.error) {
@@ -239,39 +248,35 @@ class KnowledgeGraph {
         }
     }
     
-    focusOnNode(nodeId) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        if (node) {
-            // Center the view on the node
-            const transform = d3.zoomIdentity
-                .translate(this.width / 2 - node.x, this.height / 2 - node.y)
-                .scale(1.5);
-            
-            this.svg.transition()
-                .duration(750)
-                .call(this.zoom.transform, transform);
-            
-            this.showConceptDetails(node);
+    async focusOnNode(nodeId) {
+        if (!this.nodes.find(n => n.id === nodeId)) {
+            try { await this.loadSubgraph(nodeId, 2); } catch(e) { /* ignore */ }
+        }
+        if (!this.cy) return;
+    const ele = this.cy.getElementById(nodeId);
+    if (ele && ele.length > 0) {
+            this.cy.animate({ center: { eles: ele }, zoom: 1.2 }, { duration: 450 });
+            this.showConceptDetails(ele.data());
+            this.highlightNode(nodeId);
         }
     }
     
-    highlightNode(node) {
-        // Highlight the node and its connections
-        this.g.selectAll(".node")
-            .classed("highlighted", d => d.id === node.id);
-        
-        this.g.selectAll(".link")
-            .classed("highlighted", d => d.source.id === node.id || d.target.id === node.id);
+    highlightNode(nodeId) {
+        if (!this.cy) return;
+        this.cy.elements().removeClass('highlighted');
+        const n = this.cy.getElementById(nodeId);
+    n.addClass('highlighted');
+    n.connectedEdges().addClass('highlighted');
     }
-    
     clearHighlight() {
-        this.g.selectAll(".node").classed("highlighted", false);
-        this.g.selectAll(".link").classed("highlighted", false);
+        if (!this.cy) return;
+        this.cy.elements().removeClass('highlighted');
     }
     
     async search(query) {
         try {
-            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            const base = window.API_BASE || '';
+            const response = await fetch(`${base}/api/search?q=${encodeURIComponent(query)}`);
             const data = await response.json();
             
             this.displaySearchResults(data.results);
@@ -303,28 +308,11 @@ class KnowledgeGraph {
         resultsPanel.style.display = 'block';
     }
     
-    // Drag functions
-    dragstarted(event, d) {
-        if (!event.active) this.simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-    }
-    
-    dragged(event, d) {
-        d.fx = event.x;
-        d.fy = event.y;
-    }
-    
-    dragended(event, d) {
-        if (!event.active) this.simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-    }
+    // Drag is built-in for Cytoscape
     
     resetView() {
-        this.svg.transition()
-            .duration(750)
-            .call(this.zoom.transform, d3.zoomIdentity);
+        if (!this.cy) return;
+        this.cy.fit(undefined, 40);
     }
 }
 
@@ -366,13 +354,42 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('statsBtn').addEventListener('click', function() {
         graph.loadStats();
     });
+
+    // Analysis inputs
+    const subBtn = document.getElementById('subgraphBtn');
+    if (subBtn) {
+        subBtn.addEventListener('click', () => {
+            document.getElementById('subgraphRoot').focus();
+        });
+    }
+    const runSubgraph = document.getElementById('runSubgraph');
+    if (runSubgraph) {
+        runSubgraph.addEventListener('click', async () => {
+            const root = document.getElementById('subgraphRoot').value.trim();
+            const depth = parseInt(document.getElementById('subgraphDepth').value || '2', 10);
+            if (!root) return;
+            try { await graph.loadSubgraph(root, depth); } catch (e) { alert(e.message); }
+        });
+    }
+
+    const pathBtn = document.getElementById('pathBtn');
+    if (pathBtn) {
+        pathBtn.addEventListener('click', () => {
+            document.getElementById('pathSource').focus();
+        });
+    }
+    const runPath = document.getElementById('runPath');
+    if (runPath) {
+        runPath.addEventListener('click', async () => {
+            const src = document.getElementById('pathSource').value.trim();
+            const tgt = document.getElementById('pathTarget').value.trim();
+            if (!src || !tgt) return;
+            try { await graph.loadShortestPath(src, tgt); } catch (e) { alert(e.message); }
+        });
+    }
     
     // Handle window resize
     window.addEventListener('resize', function() {
-        graph.width = window.innerWidth * 0.7;
-        graph.height = window.innerHeight - 200;
-        graph.svg.attr("width", graph.width).attr("height", graph.height);
-        graph.simulation.force("center", d3.forceCenter(graph.width / 2, graph.height / 2));
-        graph.simulation.alpha(0.3).restart();
+        if (graph && graph.cy) graph.cy.resize();
     });
 });

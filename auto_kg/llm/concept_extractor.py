@@ -63,6 +63,8 @@ class ConceptExtractor:
             
             # General mathematical terms (capitalized)
             r'\b([A-Z][a-z]+(?:\s+[a-z]+)*(?:\s+[a-z]+)*)\b(?=\s+(?:is|are|was|were|can|may|will)\s+(?:a|an|the)?\s*(?:fundamental|important|basic|key|central|main|primary))',
+            # hyphenated theorems/objects
+            r'\b([A-Z][\w-]+(?:\s+[A-Z][\w-]+)*)\s+(?:theorem|equation|transform|process|distribution)\b',
         ]
         
         concepts = set()
@@ -71,7 +73,7 @@ class ConceptExtractor:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
                 concept = match.group(1).strip()
-                if len(concept) > 2 and len(concept) < 50:  # Filter reasonable lengths
+                if 2 < len(concept) < 50:  # Filter reasonable lengths
                     concepts.add(concept)
         
         # Also look for common mathematical terms
@@ -87,8 +89,14 @@ class ConceptExtractor:
         for term in math_terms:
             if term in text_lower:
                 concepts.add(term.title())
-        
-        return list(concepts)
+        # Simple frequency-based boosts: keep items mentioned more than once
+        counts = {}
+        for c in list(concepts):
+            counts[c] = text_lower.count(c.lower())
+        # Keep those with at least one mention; sort by frequency desc then alpha
+        filtered = [c for c in concepts if counts.get(c, 0) >= 1]
+        filtered.sort(key=lambda c: (-counts.get(c, 0), c.lower()))
+        return filtered
     
     def extract_relationships_rule_based(self, text: str, concepts: List[str]) -> List[Tuple[str, str, str]]:
         """
@@ -275,7 +283,7 @@ class ConceptExtractor:
         if title not in concepts:
             concepts.insert(0, title)
         
-        # Extract relationships
+    # Extract relationships
         if self.model_type == "openai":
             relationships = self.extract_relationships_openai(text_to_process, concepts)
         else:

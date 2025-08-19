@@ -134,6 +134,34 @@ class Neo4jKnowledgeGraph:
         
         with self.driver.session() as session:
             session.run(query, parameters)
+
+    def _format_graph_records(self, nodes_records, rel_records) -> Dict:
+        """Helper to format nodes and relationships into frontend structure."""
+        nodes_map = {}
+        nodes = []
+        edges = []
+        # Nodes
+        for record in nodes_records:
+            c = dict(record['c']) if 'c' in record else dict(record['node'])
+            nid = c.get('title') or c.get('id')
+            if nid and nid not in nodes_map:
+                nodes_map[nid] = True
+                nodes.append({
+                    'id': nid,
+                    'label': nid,
+                    'summary': c.get('summary', ''),
+                    'url': c.get('url', ''),
+                    'categories': c.get('categories', [])
+                })
+        # Relationships
+        for record in rel_records:
+            edges.append({
+                'source': record['source'],
+                'target': record['target'],
+                'relationship_type': record.get('relationship_type') or record.get('type'),
+                'properties': dict(record['props']) if 'props' in record and record['props'] else {}
+            })
+        return {'nodes': nodes, 'edges': edges}
     
     def get_concept(self, title: str) -> Optional[Dict]:
         """
@@ -275,6 +303,155 @@ class Neo4jKnowledgeGraph:
                 })
         
         return {'nodes': nodes, 'edges': edges}
+
+    def export_subgraph(self, root: str, depth: int = 2, rel_types: Optional[List[str]] = None, limit: int = 500) -> Dict:
+        """Export a subgraph around a root node up to a given depth."""
+        if not self.driver:
+            return {'nodes': [], 'edges': []}
+        depth = max(1, min(int(depth), 5))
+        allowed = rel_types or [
+            'LINKS_TO', 'GENERALIZES', 'SPECIALIZES', 'USES', 'RELATED_TO', 'IMPLIES', 'PROVEN_BY', 'RELATES_TO'
+        ]
+        rel_union = '|'.join(allowed)
+        query = f"""
+        MATCH (root:Concept {{title: $root}})
+        CALL {{
+          WITH root
+          MATCH p = (root)-[r:{rel_union}*1..{depth}]-(n:Concept)
+          RETURN collect(distinct n) as ns, collect(distinct r) as rs
+        }}
+        WITH [root] + ns as allNodes, rs as rels
+        UNWIND allNodes as node
+        WITH collect(distinct node) as nodes, rels
+        UNWIND rels as r
+        WITH nodes, startNode(r) as a, endNode(r) as b, r
+        RETURN nodes as nodes_list,
+               collect(distinct {{source: a.title, target: b.title, type: type(r), props: r}}) as rels_list
+        LIMIT $limit
+        """
+        with self.driver.session() as session:
+            result = session.run(query, root=root, limit=limit)
+            rec = result.single()
+            if not rec:
+                return {'nodes': [], 'edges': []}
+            nodes = []
+            seen = set()
+            for node in rec['nodes_list']:
+                c = dict(node)
+                title = c.get('title')
+                if title and title not in seen:
+                    seen.add(title)
+                    nodes.append({
+                        'id': title,
+                        'label': title,
+                        'summary': c.get('summary', ''),
+                        'url': c.get('url', ''),
+                        'categories': c.get('categories', [])
+                    })
+            edges = []
+            for r in rec['rels_list']:
+                edges.append({
+                    'source': r['source'],
+                    'target': r['target'],
+                    'relationship_type': r['type'],
+                    'properties': dict(r['props']) if r['props'] else {}
+                })
+            return {'nodes': nodes, 'edges': edges}
+
+    def shortest_path(self, source: str, target: str, max_depth: int = 6) -> Dict:
+        """Find a shortest path between two concepts."""
+        if not self.driver:
+            return {'nodes': [], 'edges': []}
+        max_depth = max(1, min(int(max_depth), 8))
+        rel_union = 'LINKS_TO|GENERALIZES|SPECIALIZES|USES|RELATED_TO|IMPLIES|PROVEN_BY|RELATES_TO'
+        query = f"""
+        MATCH (a:Concept {{title: $source}}), (b:Concept {{title: $target}})
+        MATCH p = shortestPath((a)-[:{rel_union}*..{max_depth}]-(b))
+        WITH nodes(p) as nodes, relationships(p) as rels
+        RETURN nodes as nodes_list,
+               [r in rels | {{source: startNode(r).title, target: endNode(r).title, type: type(r), props: r}}] as rels_list
+        """
+        with self.driver.session() as session:
+            result = session.run(query, source=source, target=target)
+            rec = result.single()
+            if not rec:
+                return {'nodes': [], 'edges': []}
+            nodes = []
+            seen = set()
+            for n in rec['nodes_list']:
+                c = dict(n)
+                title = c.get('title')
+                if title and title not in seen:
+                    seen.add(title)
+                    nodes.append({
+                        'id': title,
+                        'label': title,
+                        'summary': c.get('summary', ''),
+                        'url': c.get('url', ''),
+                        'categories': c.get('categories', [])
+                    })
+            edges = []
+            for r in rec['rels_list']:
+                edges.append({
+                    'source': r['source'],
+                    'target': r['target'],
+                    'relationship_type': r['type'],
+                    'properties': dict(r['props']) if r['props'] else {}
+                })
+            return {'nodes': nodes, 'edges': edges}
+
+    def load_processed_data(self, processed_data: Dict):
+        """Load processed data with concepts and typed relationships into Neo4j."""
+        if not self.driver:
+            print("No database connection available")
+            return
+        # Create nodes first
+        for title, pdata in processed_data.items():
+            orig = pdata.get('original_data', {})
+            self.create_concept_node(
+                title=title,
+                summary=orig.get('summary', ''),
+                url=orig.get('url', ''),
+                categories=orig.get('categories', [])
+            )
+        # Create typed relationships
+        import re
+        def norm_type(rt: str) -> str:
+            return re.sub(r'[^A-Z_]', '', rt.upper().replace('-', '_')) if isinstance(rt, str) else 'RELATES_TO'
+        for title, pdata in processed_data.items():
+            rels = pdata.get('relationships', [])
+            for (src, tgt, rtype) in rels:
+                src_t = src if src in processed_data else title
+                tgt_t = tgt
+                # Ensure nodes exist
+                self.create_concept_node(
+                    title=src_t,
+                    summary=pdata.get('original_data', {}).get('summary', ''),
+                    url=pdata.get('original_data', {}).get('url', ''),
+                    categories=pdata.get('original_data', {}).get('categories', [])
+                )
+                if tgt_t not in [title] and tgt_t:
+                    self.create_concept_node(
+                        title=tgt_t,
+                        summary='',
+                        url='',
+                        categories=[]
+                    )
+                self.create_relationship(
+                    from_concept=src_t,
+                    to_concept=tgt_t,
+                    relationship_type=norm_type(rtype) or 'RELATES_TO'
+                )
+        # Also load raw LINKS_TO based on original links for connectivity
+        for title, pdata in processed_data.items():
+            links = (pdata.get('original_data') or {}).get('links', [])
+            for link in links:
+                if link in processed_data:
+                    self.create_relationship(
+                        from_concept=title,
+                        to_concept=link,
+                        relationship_type='LINKS_TO'
+                    )
     
     def load_wikipedia_data(self, wikipedia_data: Dict):
         """

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auto-KG (Static)</title>
+  <link rel="stylesheet" href="static/css/style.css" />
+  <script src="https://unpkg.com/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
+</head>
+<body>
+  <script>
+    // Set to your Render backend URL
+    window.API_BASE = 'REPLACE_WITH_RENDER_URL';
+  </script>
+  <div id="app"></div>
+  <script>
+    // Lightweight loader for the same app
+    fetch(`${window.API_BASE}/`)
+      .then(() => {
+        // redirect to backend-served UI if preferred
+        window.location.href = `${window.API_BASE}`;
+      })
+      .catch(() => {
+        document.getElementById('app').innerHTML = '<p>Backend unavailable. Please configure window.API_BASE in docs/index.html</p>';
+      });
+  </script>
+</body>
+</html>

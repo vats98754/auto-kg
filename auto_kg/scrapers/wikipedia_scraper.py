@@ -5,7 +5,7 @@ Wikipedia scraper for mathematical concepts and topics.
 import requests
 import wikipediaapi
 from bs4 import BeautifulSoup
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Tuple
 import re
 import time
 from tqdm import tqdm
@@ -14,16 +14,19 @@ from tqdm import tqdm
 class WikipediaMathScraper:
     """Scraper for mathematical concepts from Wikipedia."""
     
-    def __init__(self, language: str = 'en', max_pages: int = 100):
+    def __init__(self, language: str = 'en', max_pages: int = 100, max_depth: int = 3, seed_topics: List[str] = None):
         """
         Initialize the Wikipedia math scraper.
         
         Args:
             language: Wikipedia language code (default: 'en')
             max_pages: Maximum number of pages to scrape
+            max_depth: Maximum BFS depth from seeds
+            seed_topics: Optional custom seed topics list
         """
         self.language = language
         self.max_pages = max_pages
+        self.max_depth = max_depth
         self.wiki = wikipediaapi.Wikipedia(
             language=language,
             extract_format=wikipediaapi.ExtractFormat.WIKI,
@@ -31,7 +34,7 @@ class WikipediaMathScraper:
         )
         
         # Core mathematical topics to start with
-        self.seed_topics = [
+        self.seed_topics = seed_topics or [
             "Mathematics",
             "Algebra",
             "Calculus", 
@@ -53,6 +56,12 @@ class WikipediaMathScraper:
             "Mathematical optimization",
             "Numerical analysis"
         ]
+
+        # Exclusion prefixes/namespaces
+        self.excluded_prefixes = (
+            "Help:", "File:", "Category:", "Template:", "Talk:", "Portal:", "Wikipedia:", "Special:",
+            "Draft:", "Module:", "User:" 
+        )
     
     def get_page_content(self, title: str) -> Dict:
         """
@@ -112,6 +121,11 @@ class WikipediaMathScraper:
         
         for link in links:
             link_lower = link.lower()
+            if any(link.startswith(prefix) for prefix in self.excluded_prefixes):
+                continue
+            if ":" in link and not link.startswith("Category:"):
+                # Skip other namespaces
+                continue
             
             # Check if link contains mathematical keywords
             if any(keyword in link_lower for keyword in math_keywords):
@@ -128,6 +142,37 @@ class WikipediaMathScraper:
                         mathematical_links.append(link)
         
         return mathematical_links
+
+    def score_link(self, link: str, page_summary: str, page_content: str) -> float:
+        """Score a linked title for math relevance using simple heuristics."""
+        score = 0.0
+        title = link
+        t = title.lower()
+        # Title signals
+        math_terms = [
+            'theorem','lemma','corollary','proof','equation','formula','function','space','group','ring','field',
+            'algebra','calculus','geometry','topology','analysis','matrix','vector','derivative','integral','limit',
+            'sequence','series','probability','statistics','graph','set','logic','algorithm','optimization','operator',
+            'distribution','process','transform','differential','manifold','tensor','measure','norm','topological'
+        ]
+        if any(k in t for k in math_terms):
+            score += 2.0
+        # Avoid disambiguation/list pages
+        if t.startswith('list of') or 'disambiguation' in t:
+            score -= 1.5
+        # Frequency in text
+        cnt = page_content.lower().count(t)
+        if cnt >= 5:
+            score += 2.0
+        elif cnt >= 2:
+            score += 1.0
+        # Mention in summary
+        if t in (page_summary or '').lower():
+            score += 0.5
+        # Prefer shorter, well-formed titles
+        if 2 <= len(title) <= 60:
+            score += 0.2
+        return score
     
     def scrape_mathematics_knowledge_graph(self) -> Dict:
         """
@@ -136,43 +181,55 @@ class WikipediaMathScraper:
         Returns:
             Dictionary containing scraped mathematical concepts and relationships
         """
-        visited_pages = set()
-        to_visit = self.seed_topics.copy()
+        visited_pages: Set[str] = set()
+        # Queue of (title, depth). Start at depth 0 seeds.
+        to_visit: List[Tuple[str, int]] = [(t, 0) for t in self.seed_topics]
         scraped_data = {}
         
         print(f"Starting Wikipedia scrape for mathematical concepts...")
         print(f"Seed topics: {len(self.seed_topics)}")
         print(f"Maximum pages to scrape: {self.max_pages}")
+        print(f"Maximum BFS depth: {self.max_depth}")
         
-        with tqdm(total=min(self.max_pages, len(to_visit)), desc="Scraping pages") as pbar:
+        with tqdm(total=self.max_pages, desc="Scraping pages") as pbar:
             while to_visit and len(visited_pages) < self.max_pages:
-                current_topic = to_visit.pop(0)
-                
+                current_topic, depth = to_visit.pop(0)
                 if current_topic in visited_pages:
                     continue
-                
-                print(f"\nScraping: {current_topic}")
+                if depth > self.max_depth:
+                    continue
+
+                print(f"\nScraping (depth {depth}): {current_topic}")
                 page_data = self.get_page_content(current_topic)
-                
+
                 if page_data:
                     visited_pages.add(current_topic)
                     scraped_data[current_topic] = page_data
-                    
-                    # Extract mathematical links for further exploration
+
+                    # Extract mathematical links for further exploration and score them
                     math_links = self.extract_mathematical_links(
-                        page_data['content'], 
-                        page_data['links']
+                        page_data.get('content', ''),
+                        page_data.get('links', [])
                     )
-                    
-                    # Add new mathematical topics to visit
-                    for link in math_links:
-                        if link not in visited_pages and link not in to_visit:
-                            to_visit.append(link)
-                    
+
+                    # Score and sort links to prioritize likely math concepts
+                    scored: List[Tuple[str, float]] = [
+                        (link, self.score_link(link, page_data.get('summary', ''), page_data.get('content', '')))
+                        for link in math_links
+                    ]
+                    # Keep top-N links per page to control branching factor
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    top_links = [t for t, s in scored[:30]]  # limit branching
+
+                    # Add new topics to visit at next depth level (BFS)
+                    for link in top_links:
+                        if link not in visited_pages and all(link != t for (t, _) in to_visit):
+                            to_visit.append((link, depth + 1))
+
                     pbar.update(1)
-                
+
                 # Rate limiting to be respectful to Wikipedia
-                time.sleep(1)
+                time.sleep(0.5)
         
         print(f"\nScraping completed!")
         print(f"Total pages scraped: {len(scraped_data)}")

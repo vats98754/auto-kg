@@ -25,7 +25,9 @@ def scrape_wikipedia(args):
     
     scraper = WikipediaMathScraper(
         language=args.language,
-        max_pages=args.max_pages
+        max_pages=args.max_pages,
+        max_depth=getattr(args, 'max_depth', 3),
+        seed_topics=getattr(args, 'seed_topics', None)
     )
     
     # Scrape data
@@ -107,6 +109,28 @@ def load_to_neo4j(args):
     kg.close()
 
 
+def load_processed_to_neo4j(args):
+    """Load processed concepts with relationships into Neo4j."""
+    print("Loading processed data into Neo4j...")
+    kg = Neo4jKnowledgeGraph()
+    if not kg.driver:
+        print("Error: Could not connect to Neo4j. Please check your configuration.")
+        return
+    input_file = args.input or "processed_concepts.json"
+    if not os.path.exists(input_file):
+        print(f"Error: Input file {input_file} not found")
+        return
+    with open(input_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    if args.clear:
+        print("Clearing existing database...")
+        kg.clear_database()
+    kg.load_processed_data(data)
+    stats = kg.get_graph_stats()
+    print(f"Data loaded successfully! Graph statistics: {stats}")
+    kg.close()
+
+
 def run_web_app(args):
     """Run the web application."""
     print("Starting web application...")
@@ -129,6 +153,8 @@ def full_pipeline(args):
     scrape_args = argparse.Namespace(
         language=args.language,
         max_pages=args.max_pages,
+    max_depth=args.max_depth,
+    seed_topics=None,
         output="wikipedia_math_data.json"
     )
     scraped_data = scrape_wikipedia(scrape_args)
@@ -148,11 +174,18 @@ def full_pipeline(args):
     
     # Step 3: Load to Neo4j
     print("\n=== Step 3: Loading to Neo4j ===")
-    load_args = argparse.Namespace(
-        input="wikipedia_math_data.json",
-        clear=args.clear_db
-    )
-    load_to_neo4j(load_args)
+    if args.skip_llm:
+        load_args = argparse.Namespace(
+            input="wikipedia_math_data.json",
+            clear=args.clear_db
+        )
+        load_to_neo4j(load_args)
+    else:
+        loadp_args = argparse.Namespace(
+            input="processed_concepts.json",
+            clear=args.clear_db
+        )
+        load_processed_to_neo4j(loadp_args)
     
     # Step 4: Start web app
     if args.serve:
@@ -185,6 +218,8 @@ Examples:
     scrape_parser = subparsers.add_parser('scrape', help='Scrape Wikipedia for mathematical concepts')
     scrape_parser.add_argument('--language', default='en', help='Wikipedia language code (default: en)')
     scrape_parser.add_argument('--max-pages', type=int, default=100, help='Maximum pages to scrape (default: 100)')
+    scrape_parser.add_argument('--max-depth', type=int, default=3, help='Maximum BFS depth (default: 3)')
+    scrape_parser.add_argument('--seed-topics', nargs='*', help='Custom seed topics (space separated)')
     scrape_parser.add_argument('--output', help='Output JSON file (default: wikipedia_math_data.json)')
     
     # Process command
@@ -195,9 +230,14 @@ Examples:
                                help='LLM model type (default: rule_based)')
     
     # Load command
-    load_parser = subparsers.add_parser('load', help='Load data into Neo4j')
+    load_parser = subparsers.add_parser('load', help='Load raw scraped data into Neo4j')
     load_parser.add_argument('--input', help='Input JSON file (default: wikipedia_math_data.json)')
     load_parser.add_argument('--clear', action='store_true', help='Clear existing database')
+
+    # Load processed command
+    loadp_parser = subparsers.add_parser('load-processed', help='Load processed concepts (with relationships) into Neo4j')
+    loadp_parser.add_argument('--input', help='Input JSON file (default: processed_concepts.json)')
+    loadp_parser.add_argument('--clear', action='store_true', help='Clear existing database')
     
     # Web command
     web_parser = subparsers.add_parser('web', help='Start web application')
@@ -208,6 +248,7 @@ Examples:
     full_parser = subparsers.add_parser('full', help='Run full pipeline')
     full_parser.add_argument('--language', default='en', help='Wikipedia language code (default: en)')
     full_parser.add_argument('--max-pages', type=int, default=50, help='Maximum pages to scrape (default: 50)')
+    full_parser.add_argument('--max-depth', type=int, default=3, help='Maximum BFS depth (default: 3)')
     full_parser.add_argument('--model-type', choices=['openai', 'rule_based'], default='rule_based',
                             help='LLM model type (default: rule_based)')
     full_parser.add_argument('--skip-llm', action='store_true', help='Skip LLM processing')
@@ -230,6 +271,8 @@ Examples:
             process_with_llm(args)
         elif args.command == 'load':
             load_to_neo4j(args)
+        elif args.command == 'load-processed':
+            load_processed_to_neo4j(args)
         elif args.command == 'web':
             run_web_app(args)
         elif args.command == 'full':
